@@ -21,7 +21,7 @@
 #include "media/YtVideo.h"
 
 namespace {
-constexpr const char* kVersion = "0.6.0";
+constexpr const char* kVersion = "0.6.1";
 
 bool Inside(const SDL_FRect& r, SDL_FPoint p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; }
 

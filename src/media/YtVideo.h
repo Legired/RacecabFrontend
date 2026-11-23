@@ -29,6 +29,6 @@ int StartFromUrl(const std::string& url);
 // Si video.mp4 est en cours de lecture (fichier verrouillé), l'extrait reste dans *pendingPart (si fourni) :
 // l'appelant le met en place une fois la lecture arrêtée. Sinon, c'est une erreur.
 bool Download(const ScraperConfig& c, const std::string& url, const fs::path& dir, const std::atomic<bool>& cancel,
-              std::string& err, fs::path* pendingPart = nullptr);
+              std::string& err, fs::path* pendingPart = nullptr, double* seconds = nullptr);  // seconds : durée réelle
 
 }  // namespace ytvideo

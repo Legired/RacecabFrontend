@@ -93,12 +93,12 @@ int main(int argc, char** argv) {
         CHECK(RemuxClip(src, {}, dir / L"clip.mp4", 3, 5, err));
         double d = MediaDuration(dir / L"clip.mp4");
         std::printf("    extrait 3 s + 5 s : %.2f s %s\n", d, err.c_str());
-        CHECK(d > 4.0 && d < 7.0);
-        // Début trop tard : l'extrait est décalé pour garder sa durée.
-        CHECK(RemuxClip(src, {}, dir / L"late.mp4", 19, 5, err));
+        CHECK(d > 4.8 && d < 5.3);  // coupe exacte (edit list), pas à l'image clé précédente
+        // Durée qui dépasse la fin : le début demandé est gardé, l'extrait s'arrête à la fin (17 s -> 20 s).
+        CHECK(RemuxClip(src, {}, dir / L"late.mp4", 17, 30, err));
         d = MediaDuration(dir / L"late.mp4");
-        std::printf("    extrait 19 s + 5 s : %.2f s\n", d);
-        CHECK(d > 4.0 && d < 7.0);
+        std::printf("    extrait 17 s + 30 s (vidéo de 20 s) : %.2f s\n", d);
+        CHECK(d > 2.7 && d < 3.4);
         // Vidéo et son dans deux fichiers séparés (cas de yt-dlp).
         CHECK(RemuxClip(src, src, dir / L"two.mp4", 2, 4, err));
         CHECK(MediaDuration(dir / L"two.mp4") > 3.0);

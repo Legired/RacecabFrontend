@@ -1,5 +1,13 @@
 # Racecab Frontend : nouveautés
 
+## 0.6.1 (2026-11-23)
+
+**Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.
+
+### Corrections
+- **Vidéos YouTube : le début demandé est respecté à l'image près.** Avant, l'extrait pouvait commencer quelques secondes trop tôt, à l'image clé précédente. Et si la durée dépassait la fin de la vidéo, le début était avancé pour garder la durée. Maintenant, l'extrait commence exactement au début choisi et s'arrête à la fin de la vidéo si besoin. Le message indique la durée réellement obtenue.
+- Retélécharge la vidéo d'un jeu depuis sa fiche pour profiter de la correction : le lien, le début et la durée sont gardés.
+
 ## 0.6.0 (2026-11-23)
 
 **Mise à jour depuis la 0.5.0** : relance `Installer.bat` de cette version et choisis le même dossier. Tes jeux, images, vidéos et réglages sont conservés.

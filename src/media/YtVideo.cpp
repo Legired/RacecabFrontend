@@ -192,7 +192,7 @@ fs::path FindYtDlp(const ScraperConfig& c) {
 }
 
 bool Download(const ScraperConfig& c, const std::string& url, const fs::path& dir, const std::atomic<bool>& cancel,
-              std::string& err, fs::path* pendingPart) {
+              std::string& err, fs::path* pendingPart, double* seconds) {
     if (!IsYoutube(url)) {
         err = "lien vidéo non pris en charge : " + url;
         return false;
@@ -242,6 +242,8 @@ bool Download(const ScraperConfig& c, const std::string& url, const fs::path& di
         double total = MediaDuration(v);
         // Durée 0 : de start jusqu'à la fin de la vidéo.
         double dur = c.videoSeconds > 0 ? (double)c.videoSeconds : std::max(1.0, total - c.videoStartSec);
+        if (total > 0 && c.videoStartSec < total) dur = std::min(dur, total - c.videoStartSec);  // s'arrête à la fin
+        if (seconds) *seconds = dur;
         ok = RemuxClip(v, a, part, (double)c.videoStartSec, dur, err);
         bool keepPart = false;
         if (ok && !MoveFileExW(part.c_str(), (dir / L"video.mp4").c_str(), MOVEFILE_REPLACE_EXISTING)) {

@@ -13,7 +13,7 @@ Un même programme sert pour deux types de borne :
 
 ## 1. Installation
 
-1. Décompresse `RacecabFrontend-0.6.0.zip` n'importe où (clé USB, bureau…).
+1. Décompresse `RacecabFrontend-0.6.1.zip` n'importe où (clé USB, bureau…).
 2. Double-clique sur **Installer.bat** et réponds aux questions :
    - **Type de borne** : 1 = Racecab, 2 = GunCab ;
    - **Dossier du programme** (par défaut `C:\RacecabFrontend`) ;

@@ -60,12 +60,14 @@ bool RemuxClip(const fs::path& videoIn, const fs::path& audioIn, const fs::path&
     }
     const int sameFileAudio = audioIn.empty() ? av_find_best_stream(v.ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0) : -1;
 
+    // Le début demandé est toujours respecté : si la durée dépasse la fin, l'extrait s'arrête à la fin de la vidéo.
+    // Seul un début situé après la fin est ramené en arrière (sinon il n'y aurait rien à extraire).
     const double total = v.Duration();
-    if (total > 0) {
-        if (total <= duration) start = 0;
-        else if (start + duration > total) start = total - duration;
-    }
     start = std::max(0.0, start);
+    if (total > 0) {
+        if (start > total - 0.5) start = std::max(0.0, total - duration);
+        if (start + duration > total) duration = total - start;
+    }
 
     const std::string outU8 = util::PathU8(out);
     AVFormatContext* oc = nullptr;  // nom de sortie requis : +faststart rouvre le fichier pour déplacer l'index
@@ -99,6 +101,10 @@ bool RemuxClip(const fs::path& videoIn, const fs::path& audioIn, const fs::path&
     }
     AVDictionary* opts = nullptr;
     av_dict_set(&opts, "movflags", "+faststart", 0);
+    // Coupe exacte sans réencodage : les images entre l'image clé précédente et le début ont des horodatages
+    // négatifs, et une « edit list » MP4 indique au lecteur de commencer exactement au début demandé.
+    av_dict_set(&opts, "use_editlist", "1", 0);
+    oc->avoid_negative_ts = AVFMT_AVOID_NEG_TS_DISABLED;
     r = avformat_write_header(oc, &opts);
     av_dict_free(&opts);
     if (r < 0) {
@@ -114,14 +120,14 @@ bool RemuxClip(const fs::path& videoIn, const fs::path& audioIn, const fs::path&
     if (audio) av_seek_frame(audio->ctx, -1, startTs, AVSEEK_FLAG_BACKWARD);
 
     AVPacket* pkt = av_packet_alloc();
-    double t0 = -1;    // en secondes : PTS de la première image gardée
-    double base = 0;   // DTS de cette image (origine des horodatages de sortie)
+    double t0 = -1;    // en secondes : PTS de la première image gardée (image clé au plus tard au début demandé)
+    const double base = start;  // origine des horodatages de sortie : le début demandé
     std::string writeErr;
     size_t written = 0;
     auto write = [&](AVFormatContext* ic, AVPacket* p, int outIdx) {
         AVStream* is = ic->streams[p->stream_index];
         AVStream* os = oc->streams[outIdx];
-        // Décalage pris sur le DTS de la première image clé : les DTS commencent à 0 (jamais négatifs).
+        // Décalage : le début demandé devient l'instant 0 (images d'amorce avant lui : horodatages négatifs).
         const int64_t off = av_rescale_q((int64_t)(base * AV_TIME_BASE), AV_TIME_BASE_Q, is->time_base);
         if (p->pts != AV_NOPTS_VALUE) p->pts -= off;
         if (p->dts != AV_NOPTS_VALUE) p->dts -= off;
@@ -151,14 +157,13 @@ bool RemuxClip(const fs::path& videoIn, const fs::path& audioIn, const fs::path&
                 continue;
             }
             t0 = t;
-            base = pkt->dts != AV_NOPTS_VALUE ? pkt->dts * av_q2d(v.ctx->streams[pkt->stream_index]->time_base) : t;
-            base = std::min(base, t0);
         }
-        if (t0 < 0 || t < t0) {
+        // Vidéo : toutes les images depuis l'image clé (nécessaires au décodage) ; son : à partir du début exact.
+        if (t0 < 0 || t < (isV ? t0 : start)) {
             av_packet_unref(pkt);
             continue;
         }
-        if (t >= t0 + duration) {
+        if (t >= start + duration) {
             av_packet_unref(pkt);
             if (isV) break;
             continue;
@@ -174,11 +179,11 @@ bool RemuxClip(const fs::path& videoIn, const fs::path& audioIn, const fs::path&
                 continue;
             }
             double t = secs(audio->ctx, pkt);
-            if (t >= t0 + duration) {
+            if (t >= start + duration) {
                 av_packet_unref(pkt);
                 break;
             }
-            if (t >= t0) write(audio->ctx, pkt, aOut);
+            if (t >= start) write(audio->ctx, pkt, aOut);
             av_packet_unref(pkt);
         }
     }

@@ -275,16 +275,17 @@ void Scraper::DownloadVideo(int64_t gameId, const std::string& name, const std::
         std::error_code ec;
         fs::create_directories(dir, ec);
         fs::path pending;
-        r.ok = ytvideo::Download(c, url, dir, cancel_, err, &pending);
+        double secs = 0;
+        r.ok = ytvideo::Download(c, url, dir, cancel_, err, &pending, &secs);
         if (r.ok && !pending.empty()) {
             r.pendingFrom = util::PathU8(pending);
             r.pendingTo = util::PathU8(dir / L"video.mp4");
         }
         if (r.ok) {
             r.written.push_back(util::PathU8(dir / L"video.mp4"));
-            r.message = c.videoSeconds > 0
-                            ? std::format("vidéo YouTube : extrait de {} s à partir de {} s enregistré", c.videoSeconds, startSec)
-                            : std::format("vidéo YouTube : enregistrée de {} s jusqu'à la fin", startSec);
+            r.message = c.videoSeconds > 0 && secs + 0.5 >= c.videoSeconds
+                            ? std::format("vidéo YouTube : extrait de {:.0f} s à partir de {} s enregistré", secs, startSec)
+                            : std::format("vidéo YouTube : enregistrée de {} s jusqu'à la fin ({:.0f} s)", startSec, secs);
         } else {
             r.message = "vidéo YouTube : " + err;
         }
