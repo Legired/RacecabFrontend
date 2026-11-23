@@ -1,0 +1,11 @@
+build/
+vcpkg_installed/
+testdata/
+dist/
+
+# Liste de jeux personnelle (chemins de ce PC)
+imports/windowsloader.json
+# Binaire tiers (22 Mo) : à placer avant package.ps1, voir third_party/yt-dlp/LISEZMOI.txt
+third_party/yt-dlp/yt-dlp.exe
+# Page web enregistrée (pas du code)
+ss.html

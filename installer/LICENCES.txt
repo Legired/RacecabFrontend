@@ -1,0 +1,27 @@
+Racecab Frontend - composants tiers et licences
+================================================
+
+Racecab Frontend utilise les bibliotheques suivantes, distribuees sous forme de DLL a cote du programme :
+
+- FFmpeg (avcodec, avformat, avutil, swresample, swscale) : GNU LGPL 2.1 ou ulterieure.
+  Compile sans composant GPL ni non libre. Sources : https://ffmpeg.org
+  Les DLL peuvent etre remplacees par une autre version compatible.
+- SDL3, SDL3_image, SDL3_ttf : licence zlib. https://libsdl.org
+- SQLite : domaine public. https://sqlite.org
+- FreeType : licence FreeType (FTL). https://freetype.org
+- libpng : licence libpng. libjpeg-turbo : licences IJG / BSD modifiee.
+- zlib : licence zlib. bzip2 : licence de type BSD. Brotli : licence MIT.
+- Dear ImGui : licence MIT. nlohmann/json : licence MIT.
+- Runtime Microsoft Visual C++ (msvcp140*.dll, vcruntime140*.dll) : redistribuable selon les conditions
+  de licence de Microsoft Visual Studio.
+
+Outil fourni :
+- yt-dlp (yt-dlp.exe) : The Unlicense (domaine public). https://github.com/yt-dlp/yt-dlp
+  L'executable inclut Python et des bibliotheques sous leurs propres licences :
+  https://github.com/yt-dlp/yt-dlp/blob/master/THIRD_PARTY_LICENSES.txt
+  Il peut etre mis a jour depuis Administration > Medias. Usage personnel : les conditions
+  d'utilisation de YouTube interdisent le telechargement des videos.
+
+Donnees de jeux et medias telecharges a la demande de l'utilisateur :
+- LaunchBox Games Database (gamesdb.launchbox-app.com), ScreenScraper (licence CC BY-NC-SA),
+  SteamGridDB : selon les conditions de chaque service. Ils ne sont pas inclus dans ce paquet.

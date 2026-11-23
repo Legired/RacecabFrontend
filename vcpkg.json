@@ -1,0 +1,14 @@
+{
+  "name": "racecab-frontend",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "sdl3",
+    { "name": "sdl3-image", "features": [ "png", "jpeg" ] },
+    "sdl3-ttf",
+    "sqlite3",
+    "nlohmann-json",
+    "zlib",
+    { "name": "ffmpeg", "default-features": false, "features": [ "avcodec", "avformat", "swresample", "swscale" ] },
+    { "name": "imgui", "features": [ "sdl3-binding", "sdl3-renderer-binding" ] }
+  ]
+}

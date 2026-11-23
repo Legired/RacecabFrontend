@@ -1,0 +1,1 @@
+﻿Placer ici yt-dlp.exe (https://github.com/yt-dlp/yt-dlp/releases, version Windows) avant package.ps1 : il est inclus dans le paquet d'installation. Sans lui, le paquet est créé sans yt-dlp.

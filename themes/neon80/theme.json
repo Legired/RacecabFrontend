@@ -1,0 +1,86 @@
+{
+  "accent": [
+    255,
+    46,
+    196,
+    255
+  ],
+  "backgroundBottom": [
+    2,
+    0,
+    8,
+    255
+  ],
+  "backgroundTop": [
+    10,
+    2,
+    28,
+    255
+  ],
+  "bodySize": 0.024000000208616257,
+  "fanartBackgroundAlpha": 0.1,
+  "fontBody": "C:/Windows/Fonts/bahnschrift.ttf",
+  "fontTitle": "C:/Windows/Fonts/seguibli.ttf",
+  "headerRect": [
+    0.029999999329447746,
+    0.02500000037252903,
+    0.9399999976158142,
+    0.05000000074505806
+  ],
+  "infoRect": [
+    0.775,
+    0.09,
+    0.195,
+    0.62
+  ],
+  "mediaRect": [
+    0.03,
+    0.09,
+    0.725,
+    0.62
+  ],
+  "panel": [
+    130,
+    20,
+    170,
+    60
+  ],
+  "showStats": true,
+  "smallSize": 0.01899999938905239,
+  "text": [
+    255,
+    244,
+    252,
+    255
+  ],
+  "textDim": [
+    110,
+    225,
+    255,
+    255
+  ],
+  "titleSize": 0.044,
+  "wheel": {
+    "animSpeed": 16.0,
+    "bandColor": [
+      18,
+      0,
+      36,
+      175
+    ],
+    "bandHeight": 0.25,
+    "curvature": 0.05000000074505806,
+    "falloff": 0.9200000166893005,
+    "itemH": 0.11999999731779099,
+    "itemW": 0.12999999523162842,
+    "mode": "wheel",
+    "selectedScale": 1.399999976158142,
+    "sideAlpha": 0.550000011920929,
+    "sideScale": 0.8500000238418579,
+    "spacing": 0.15000000596046448,
+    "tilt": 4.0,
+    "visible": 7,
+    "y": 0.8550000190734863
+  },
+  "backgroundImage": "background.png"
+}
