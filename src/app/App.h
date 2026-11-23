@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/Settings.h"
+#include "core/Updater.h"
 #include "input/Input.h"
 #include "launcher/Launcher.h"
 #include "library/Library.h"
@@ -52,6 +53,9 @@ public:
     void LaunchGame(int64_t id);
     void Toast(const std::string& msg, bool error = false);
     void RequestQuit() { running_ = false; }
+    static const char* Version();
+    Updater& Updates() { return updater_; }
+    bool InstallUpdate(std::string& err);  // lance l'installation de la mise à jour prête, puis ferme le frontend
     void RequestRestart() {  // ex. après une restauration : le frontend se relance aussitôt
         restartRequested_ = true;
         running_ = false;
@@ -169,6 +173,8 @@ private:
     std::unique_ptr<AdminUI> admin_;
     std::unique_ptr<VideoPlayer> video_;
     SDL_Texture* videoTex_ = nullptr;  // image vidéo de la frame courante
+    Updater updater_;
+    bool updateNotified_ = false;
     CropCache crops_;                  // zones utiles des vidéos (bandes noires retirées)
     SDL_Texture* blurA_ = nullptr;     // fond flou : réductions successives de l'image (filtrage linéaire)
     SDL_Texture* blurB_ = nullptr;

@@ -1,5 +1,7 @@
 #include "admin/AdminUI.h"
 
+#include <map>
+#include <set>
 #include <windows.h>
 #include <psapi.h>
 #include <shellapi.h>
@@ -17,6 +19,8 @@
 #include "core/ConfigShare.h"
 #include "core/System.h"
 #include "media/YtVideo.h"
+#include "media/LaunchBox.h"
+#include "profiles/Profile.h"
 
 namespace {
 
@@ -77,6 +81,8 @@ bool AdminUI::Init(SDL_Window* w, SDL_Renderer* r) {
 }
 
 void AdminUI::Shutdown() {
+    scanCancel_ = true;
+    if (scanThread_.joinable()) scanThread_.join();
     if (!ready_) return;
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
@@ -138,6 +144,69 @@ void AdminUI::RefreshImportPreview() {
     importMissing_ = pv.missingPaths;
     importExported_ = pv.exported;
     importChecked_ = true;
+}
+
+void AdminUI::SectionUpdates() {
+    Settings& s = app_.Config();
+    Updater& up = app_.Updates();
+    ImGui::SeparatorText("Mises à jour");
+    ImGui::Text("Version installée : %s", App::Version());
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Vérifier au démarrage", &s.updateAutoCheck)) app_.SaveSettings();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(260);
+    if (ImGui::InputText("Dépôt GitHub", &s.updateRepo)) app_.SaveSettings();
+    Help("Les nouvelles versions sont cherchées dans les « releases » de ce dépôt GitHub public (propriétaire/dépôt). "
+         "Rien n'est téléchargé sans ton accord. Tes jeux, médias et réglages sont conservés lors de la mise à jour.");
+
+    const Updater::State st = up.GetState();
+    ImGui::BeginDisabled(up.Busy());
+    if (ImGui::Button("Rechercher une mise à jour")) up.Check(util::Trim(s.updateRepo), App::Version());
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const std::string msg = up.Message();
+    const ImVec4 orange(1.0f, 0.8f, 0.2f, 1.0f);
+    switch (st) {
+        case Updater::State::Idle: ImGui::TextDisabled("pas encore vérifié"); break;
+        case Updater::State::Checking: ImGui::TextColored(orange, "%s", msg.c_str()); break;
+        case Updater::State::UpToDate: ImGui::TextColored(kGreen, "%s", msg.c_str()); break;
+        case Updater::State::Error: ImGui::TextColored(kRed, "%s", msg.c_str()); break;
+        case Updater::State::Available:
+        case Updater::State::Downloading:
+        case Updater::State::Ready: ImGui::TextColored(orange, "%s", msg.c_str()); break;
+    }
+    if (st == Updater::State::Available || st == Updater::State::Downloading || st == Updater::State::Ready) {
+        ReleaseInfo r = up.Release();
+        ImGui::Indent();
+        ImGui::Text("%s%s", r.name.empty() ? ("Version " + r.version).c_str() : r.name.c_str(),
+                    r.published.empty() ? "" : (" (publiée le " + r.published + ")").c_str());
+        if (!r.notes.empty() && ImGui::TreeNode("Nouveautés de cette version")) {
+            ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x);
+            ImGui::TextUnformatted(r.notes.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::TreePop();
+        }
+        const bool installable = Updater::CanInstall(app_.Dirs().exeDir);
+        if (st == Updater::State::Available && ImGui::Button("Télécharger la mise à jour")) up.Download(app_.Dirs().dataDir);
+        if (st == Updater::State::Downloading) ImGui::ProgressBar(up.Progress(), ImVec2(320, 0));
+        if (st == Updater::State::Ready) {
+            ImGui::BeginDisabled(!installable);
+            if (ImGui::Button("Installer et redémarrer le frontend")) {
+                std::string err;
+                if (!app_.InstallUpdate(err)) {
+                    message_ = "Mise à jour impossible : " + err;
+                    messageError_ = true;
+                }
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("Le frontend se ferme, s'installe (environ 10 s), puis redémarre.");
+        }
+        if (!installable)
+            ImGui::TextColored(orange, "Copie de développement (pas installée avec Installer.bat) : installation automatique "
+                                       "désactivée, utiliser le paquet téléchargé.");
+        ImGui::Unindent();
+    }
 }
 
 void AdminUI::SectionShare() {
@@ -236,6 +305,362 @@ void AdminUI::SectionShare() {
     ImGui::Unindent();
 }
 
+// ---------------------------------------------------------------- Ajout automatique (scan d'un dossier)
+
+void AdminUI::StartScan(const std::string& root) {
+    if (scanBusy_) return;
+    if (scanThread_.joinable()) scanThread_.join();
+    scanRoot_ = root;
+    scanRows_.clear();
+    scanReady_ = false;
+    scanOpen_ = true;
+    scanCancel_ = false;
+    scanBusy_ = true;
+    const fs::path lbDb = app_.ScrapeConfig().lbDir / L"launchbox.db";
+    scanThread_ = std::thread([this, root, lbDb] {
+        std::vector<ScanCandidate> list;
+        try {
+            list = scanner::Scan(util::U8Path(root), scanCancel_, [this](const std::string& d) {
+                std::lock_guard lk(scanM_);
+                scanStatus_ = d;
+            });
+        } catch (const std::exception& e) {  // un scan ne doit jamais faire tomber le frontend
+            logx::Error("Scan de {} interrompu : {}", root, e.what());
+        }
+        for (auto& c : list) {  // abréviations courantes : « id4 » -> « Initial D Arcade Stage 4 »
+            c.rawName = c.name;
+            if (std::string a = scanner::Alias(c.name); !a.empty()) c.name = a;
+        }
+        // Reconnaissance par la base LaunchBox locale (lecture seule, sans Internet)
+        LaunchBoxDb db;
+        std::string err;
+        if (db.Open(lbDb, err))
+            for (auto& c : list) {
+                if (scanCancel_) break;
+                {
+                    std::lock_guard lk(scanM_);
+                    scanStatus_ = "Reconnaissance : " + c.name;
+                }
+                auto found = db.Search(c.name, 10);
+                bool exact = std::any_of(found.begin(), found.end(), [](auto& m) { return m.exact; });
+                if (!exact && c.rawName != c.name) found = db.Search(c.rawName, 10);  // ex. « hummer » chez LaunchBox
+                for (const auto& m : found) {
+                    if (!m.exact) continue;
+                    c.lbName = m.game.name;
+                    c.lbYear = m.game.date.size() >= 4 ? std::atoi(m.game.date.substr(0, 4).c_str()) : 0;
+                    c.lbPublisher = !m.game.publisher.empty() ? m.game.publisher : m.game.developer;
+                    c.lbGenre = m.game.genres;
+                    c.lbPlatform = m.game.platform;
+                    c.lbOverview = m.game.overview;
+                    break;
+                }
+            }
+        std::lock_guard lk(scanM_);
+        scanDone_ = std::move(list);
+        scanReady_ = true;
+        scanBusy_ = false;
+    });
+}
+
+std::string AdminUI::CabsOf(int64_t category) {
+    if (!category) return "aucune (sans catégorie)";
+    Library& lib = app_.Lib();
+    if (SDL_GetTicks() - cabProfilesAt_ > 2000 || cabProfiles_.empty()) {
+        cabProfiles_.clear();
+        std::error_code ec;
+        for (auto& e : fs::directory_iterator(app_.Dirs().ProfilesDir(), ec)) {
+            if (e.path().extension() != L".json") continue;
+            Profile p;
+            if (p.Load(e.path()) && p.mode != "none") cabProfiles_.push_back({p.mode, p.hiddenCategories});
+        }
+        cabProfilesAt_ = SDL_GetTicks();
+    }
+    bool race = false, gun = false;
+    for (auto& [mode, hiddenList] : cabProfiles_) {
+        bool hidden = false;
+        for (int64_t h : hiddenList)
+            if (h == category || lib.IsDescendant(category, h)) hidden = true;
+        if (hidden) continue;
+        if (mode.empty() || mode == "racecab") race = true;
+        if (mode.empty() || mode == "guncab") gun = true;
+    }
+    if (race && gun) return "Racecab + GunCab";
+    if (race) return "Racecab";
+    if (gun) return "GunCab";
+    return "aucune borne";
+}
+
+int64_t AdminUI::CabDefaultCategory(const std::string& cab) {
+    // Catégorie visible seulement sur cette borne ; de préférence une sous-catégorie « Arcade ».
+    int64_t best = 0;
+    int bestScore = -1;
+    for (const Category& c : app_.Lib().Categories()) {
+        if (CabsOf(c.id) != cab) continue;
+        int score = (app_.Lib().ChildCategories(c.id, true).empty() ? 2 : 0) +
+                    (util::ToLower(c.name).find("arcade") != std::string::npos ? 1 : 0);
+        if (score > bestScore) {
+            best = c.id;
+            bestScore = score;
+        }
+    }
+    return best;
+}
+
+void AdminUI::WindowScan() {
+    Library& lib = app_.Lib();
+    // Résultats du thread : déjà présents, catégorie proposée selon le genre, cochés si reconnus
+    {
+        std::lock_guard lk(scanM_);
+        if (scanReady_) {
+            scanReady_ = false;
+            const int64_t race = CabDefaultCategory("Racecab"), gun = CabDefaultCategory("GunCab");
+            // Doublons dans la liste : un seul résultat par jeu (LinuxLoader > .exe > .bat sans pause > .bat avec pause)
+            auto rank = [](const ScanCandidate& c) {
+                return c.kind == "linuxloader" ? 4 : c.kind == "exe" ? 3 : c.runMode == RunMode::Normal ? 1 : 2;
+            };
+            std::map<std::string, size_t> bestOf;  // nom normalisé -> indice du meilleur résultat
+            for (size_t i = 0; i < scanDone_.size(); ++i) {
+                auto& c = scanDone_[i];
+                // Nom officiel quand le jeu est reconnu, sauf s'il est plus court (« Initial D4 » < « Initial D Arcade Stage 4 »)
+                if (!c.lbName.empty() && c.lbName.size() >= c.name.size()) c.name = c.lbName;
+                std::string key = Scraper::Normalize(c.name);
+                auto it = bestOf.find(key);
+                if (it == bestOf.end()) bestOf[key] = i;
+                else if (rank(c) > rank(scanDone_[it->second])) it->second = i;
+            }
+            for (size_t i = 0; i < scanDone_.size(); ++i) {
+                auto& c = scanDone_[i];
+                size_t best = bestOf[Scraper::Normalize(c.name)];
+                if (best != i) c.dupOf = scanDone_[best].name + " (" + scanDone_[best].kind + ")";
+            }
+            for (auto& c : scanDone_) {
+                ScanRow r;
+                r.c = std::move(c);
+                std::string lp = util::ToLower(r.c.launchPath), nm = Scraper::Normalize(r.c.name),
+                            lbn = Scraper::Normalize(r.c.lbName), raw = Scraper::Normalize(r.c.rawName);
+                // Déjà dans le frontend : même fichier + mêmes arguments, ou un des noms connus (dossier, abréviation,
+                // nom officiel LaunchBox) identique au nom ou au nom alternatif d'un jeu présent
+                for (const Game& g : lib.Games()) {
+                    std::string gn = Scraper::Normalize(g.name), ga = Scraper::Normalize(g.altName);
+                    auto same = [&](const std::string& n) { return !n.empty() && (n == gn || n == ga); };
+                    if ((util::ToLower(g.launchPath) == lp && g.args == r.c.args) || same(nm) || same(lbn) || same(raw)) {
+                        r.c.existing = true;
+                        r.c.existingName = g.name;
+                        break;
+                    }
+                }
+                std::string genre = util::ToLower(r.c.lbGenre);
+                if (genre.find("racing") != std::string::npos || genre.find("driving") != std::string::npos) r.cat = race;
+                else if (genre.find("shoot") != std::string::npos || genre.find("gun") != std::string::npos) r.cat = gun;
+                r.sel = !r.c.existing && r.c.dupOf.empty() && (!r.c.lbName.empty() || r.c.kind == "linuxloader");
+                scanRows_.push_back(std::move(r));
+            }
+            scanDone_.clear();
+        }
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(1100, 560), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Ajout automatique de jeux", &scanOpen_)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::Text("Dossier : %s", scanRoot_.c_str());
+    if (scanBusy_) {
+        std::string st;
+        {
+            std::lock_guard lk(scanM_);
+            st = scanStatus_;
+        }
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Recherche en cours... %s", st.c_str());
+        if (ImGui::Button("Arrêter")) scanCancel_ = true;
+        ImGui::End();
+        return;
+    }
+    if (scanRows_.empty()) {
+        ImGui::TextWrapped("Aucun jeu trouvé dans ce dossier.");
+        if (ImGui::Button("Choisir un autre dossier...")) BrowseFolder(Field::ScanFolder);
+        ImGui::End();
+        return;
+    }
+
+    // Catégories (chemin lisible) pour les listes déroulantes
+    std::vector<std::pair<int64_t, std::string>> cats{{0, "(aucune)"}};
+    for (const Category& c : lib.Categories()) {
+        std::string path = lib.NodePath(c.id);
+        cats.push_back({c.id, path});
+    }
+    std::sort(cats.begin() + 1, cats.end(), [](auto& a, auto& b) { return a.second < b.second; });
+    auto catName = [&](int64_t id) {
+        for (auto& c : cats)
+            if (c.first == id) return c.second;
+        return std::string("(aucune)");
+    };
+    auto catCombo = [&](const char* label, int64_t& id) {
+        bool changed = false;
+        if (ImGui::BeginCombo(label, catName(id).c_str())) {
+            for (auto& c : cats) {
+                bool cur = c.first == id;
+                if (ImGui::Selectable(c.second.c_str(), cur)) {
+                    id = c.first;
+                    changed = true;
+                }
+                if (cur) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        return changed;
+    };
+
+    int nSel = 0, nExist = 0, nLb = 0, nDup = 0;
+    for (auto& r : scanRows_) {
+        if (r.c.existing) r.sel = false;  // jamais d'ajout en double
+        nSel += r.sel;
+        nExist += r.c.existing;
+        nDup += !r.c.existing && !r.c.dupOf.empty();
+        nLb += !r.c.lbName.empty();
+    }
+    ImGui::Text("%d jeu(x) trouvé(s) : %d reconnu(s) par LaunchBox, %d déjà dans le frontend, %d doublon(s) dans la liste. "
+                "%d coché(s).", (int)scanRows_.size(), nLb, nExist, nDup, nSel);
+    if (ImGui::Button("Tout cocher"))
+        for (auto& r : scanRows_) r.sel = !r.c.existing && r.c.dupOf.empty();
+    ImGui::SameLine();
+    if (ImGui::Button("Tout décocher"))
+        for (auto& r : scanRows_) r.sel = false;
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220);
+    catCombo("##bulk", scanBulkCat_);
+    ImGui::SameLine();
+    if (ImGui::Button("Appliquer aux jeux cochés"))
+        for (auto& r : scanRows_)
+            if (r.sel) r.cat = scanBulkCat_;
+    ImGui::SameLine();
+    if (ImGui::Button("Cochés -> Racecab")) {
+        int64_t c = CabDefaultCategory("Racecab");
+        for (auto& r : scanRows_)
+            if (r.sel) r.cat = c;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cochés -> GunCab")) {
+        int64_t c = CabDefaultCategory("GunCab");
+        for (auto& r : scanRows_)
+            if (r.sel) r.cat = c;
+    }
+
+    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.4f;
+    if (ImGui::BeginTable("scan", 7,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp,
+                          ImVec2(0, -footer))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 24);
+        ImGui::TableSetupColumn("Nom", ImGuiTableColumnFlags_WidthStretch, 2.2f);
+        ImGui::TableSetupColumn("Reconnu (LaunchBox)", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        ImGui::TableSetupColumn("Catégorie", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+        ImGui::TableSetupColumn("Borne", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Lanceur", ImGuiTableColumnFlags_WidthStretch, 2.6f);
+        ImGui::TableSetupColumn("Remarque", ImGuiTableColumnFlags_WidthStretch, 1.8f);
+        ImGui::TableHeadersRow();
+        ImGuiListClipper clip;
+        clip.Begin((int)scanRows_.size());
+        while (clip.Step())
+            for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
+                ScanRow& r = scanRows_[(size_t)i];
+                ImGui::PushID(i);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::BeginDisabled(r.c.existing);
+                ImGui::Checkbox("##s", &r.sel);
+                ImGui::EndDisabled();
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                ImGui::InputText("##n", &r.c.name);
+                ImGui::TableNextColumn();
+                if (!r.c.lbName.empty()) {
+                    ImGui::TextColored(kGreen, "%s", r.c.lbName.c_str());
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%d - %s - %s", r.c.lbYear, r.c.lbPublisher.c_str(), r.c.lbGenre.c_str());
+                    if (r.c.name != r.c.lbName) {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Utiliser ce nom")) r.c.name = r.c.lbName;
+                    }
+                } else {
+                    ImGui::TextDisabled("non reconnu");
+                }
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                catCombo("##c", r.cat);
+                ImGui::TableNextColumn();
+                std::string cab = CabsOf(r.cat);
+                ImGui::TextColored(r.cat ? ImVec4(0.6f, 0.85f, 1.0f, 1.0f) : kRed, "%s", cab.c_str());
+                ImGui::TableNextColumn();
+                std::string shown = r.c.kind == "linuxloader" ? "LinuxLoader : " + r.c.args : r.c.launchPath;
+                ImGui::TextUnformatted(shown.c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s %s\nDossier : %s", r.c.launchPath.c_str(), r.c.args.c_str(),
+                                      r.c.workDir.empty() ? "(celui du lanceur)" : r.c.workDir.c_str());
+                ImGui::TableNextColumn();
+                const ImVec4 orange(1.0f, 0.8f, 0.2f, 1.0f);
+                if (r.c.existing) ImGui::TextColored(orange, "déjà dans le frontend : %s", r.c.existingName.c_str());
+                else if (!r.c.dupOf.empty()) ImGui::TextColored(orange, "doublon de %s", r.c.dupOf.c_str());
+                else ImGui::TextDisabled("%s", r.c.note.c_str());
+                if (ImGui::IsItemHovered() && !r.c.note.empty()) ImGui::SetTooltip("%s", r.c.note.c_str());
+                ImGui::PopID();
+            }
+        ImGui::EndTable();
+    }
+    ImGui::Checkbox("Récupérer ensuite les logos, images et infos des jeux ajoutés", &scanFetchMedia_);
+    int noCat = 0;
+    for (auto& r : scanRows_) noCat += r.sel && !r.cat;
+    if (noCat) {
+        ImGui::SameLine();
+        ImGui::TextColored(kRed, "%d jeu(x) coché(s) sans catégorie : ils n'apparaîtront sur aucune borne filtrée.", noCat);
+    }
+    ImGui::BeginDisabled(nSel == 0);
+    if (ImGui::Button(std::format("Ajouter les {} jeu(x) coché(s)", nSel).c_str())) {
+        std::vector<int64_t> added;
+        int dup = 0;
+        std::set<std::string> names;  // noms déjà présents ou ajoutés dans ce lot
+        for (const Game& g : lib.Games()) names.insert(Scraper::Normalize(g.name));
+        for (auto& r : scanRows_) {
+            if (!r.sel) continue;
+            if (lib.FindDuplicate(r.c.launchPath, r.c.args, 0) || !names.insert(Scraper::Normalize(r.c.name)).second) {
+                ++dup;
+                continue;
+            }
+            Game g;
+            g.name = util::Trim(r.c.name);
+            g.launchPath = r.c.launchPath;
+            g.args = r.c.args;
+            g.workDir = r.c.workDir;
+            g.runMode = r.c.runMode;
+            if (r.cat) g.categories.push_back(r.cat);
+            g.year = r.c.lbYear;
+            g.publisher = r.c.lbPublisher;
+            g.platform = r.c.lbPlatform;
+            g.description = r.c.lbOverview;
+            std::string genre = util::ToLower(r.c.lbGenre);
+            g.genre = genre.find("racing") != std::string::npos || genre.find("driving") != std::string::npos ? "Course"
+                      : genre.find("shoot") != std::string::npos || genre.find("gun") != std::string::npos
+                          ? "Tir"
+                          : util::Trim(r.c.lbGenre.substr(0, r.c.lbGenre.find(';')));
+            if (int64_t id = lib.AddGame(g)) added.push_back(id);
+        }
+        app_.RefreshItems();
+        if (scanFetchMedia_ && !added.empty()) app_.StartBatch(added);
+        message_ = std::format("{} jeu(x) ajouté(s){}{}.", added.size(), dup ? std::format(", {} doublon(s) ignoré(s)", dup) : "",
+                               scanFetchMedia_ && !added.empty() ? " ; récupération des médias en cours (onglet Médias)" : "");
+        messageError_ = false;
+        scanRows_.clear();
+        scanOpen_ = false;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Fermer")) scanOpen_ = false;
+    ImGui::End();
+}
+
 void AdminUI::BrowseFolder(Field f) {
     SDL_ShowOpenFolderDialog(DialogCallback, new DialogCtx{this, f}, window_, nullptr, false);
 }
@@ -270,6 +695,9 @@ void AdminUI::ApplyPendingDialog() {
         case Field::ThemeBackground:
             app_.CurrentTheme().backgroundImage = p;
             app_.Textures()->Invalidate(p);
+            break;
+        case Field::ScanFolder:
+            StartScan(p);
             break;
         case Field::ShareExport: {
             fs::path out = util::U8Path(p);
@@ -351,6 +779,7 @@ void AdminUI::Render() {
         ImGui::EndTabBar();
     }
     ImGui::End();
+    if (scanOpen_) WindowScan();
     if (!keep) Close();
 
     ImGui::Render();
@@ -427,6 +856,13 @@ void AdminUI::TabGames() {
     if (ImGui::Button("+ Ajouter un jeu")) NewGame();
     ImGui::SameLine();
     if (ImGui::Button("Importer une liste...")) BrowseFile(Field::Import, "Liste de jeux (JSON)", "json");
+    ImGui::SameLine();
+    if (ImGui::Button("Scanner un dossier...")) {
+        if (scanBusy_) scanOpen_ = true;
+        else BrowseFolder(Field::ScanFolder);
+    }
+    Help("Ajout automatique : choisis un dossier (ex. H:\\LinuxLoader). Les jeux trouvés s'affichent dans une liste : "
+         "coche ceux à ajouter et choisis leur catégorie (donc la borne où ils apparaissent).");
     Help("Fichier JSON : voir docs/Import.md. Les doublons (même fichier + mêmes arguments) sont ignorés.");
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##filter", "Rechercher...", &filter_);
@@ -862,6 +1298,7 @@ void AdminUI::TabSystem() {
          "5 secondes (puis confirmer), ou ce panneau (F1).");
     if (ImGui::Button("Quitter le frontend")) app_.RequestQuit();
 
+    SectionUpdates();
     SectionShare();
 
     ImGui::SeparatorText("Sauvegarde de la configuration");

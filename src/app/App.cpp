@@ -172,6 +172,10 @@ int App::Run(int argc, char** argv) {
         }
         if (auto r = launcher_.Poll()) OnGameFinished(*r);
         PollScraper();
+        if (!updateNotified_ && updater_.GetState() == Updater::State::Available) {
+            updateNotified_ = true;
+            Toast("Mise à jour " + updater_.Release().version + " disponible : Administration > Système");
+        }
         if (!pendingMoves_.empty()) ProcessPendingMoves(nowMs);
         UpdateVideo(nowMs);
 
@@ -286,6 +290,7 @@ bool App::Init(int argc, char** argv) {
             scraper_.UpdateLaunchBox(false);
         }
     }
+    if (settings_.updateAutoCheck && !settings_.updateRepo.empty()) updater_.Check(settings_.updateRepo, kVersion);
     admin_ = std::make_unique<AdminUI>(*this);
     if (!admin_->Init(window_, renderer_)) return false;
 
@@ -413,6 +418,16 @@ void App::RunScript(uint64_t now) {
     };
     if (tok == "F1") admin_->Toggle();
     else if (tok.rfind("adminTab:", 0) == 0) admin_->OpenTab(tok.substr(9));
+    else if (tok == "updateCheck") updater_.Check(settings_.updateRepo, kVersion);  // = boutons de Système > Mises à jour
+    else if (tok == "updateDownload") updater_.Download(paths_.dataDir);
+    else if (tok == "updateInstall") {
+        std::string err;
+        if (!InstallUpdate(err)) logx::Error("[test] mise à jour : {}", err);
+    }
+    else if (tok.rfind("scanFolder:", 0) == 0) {  // = Jeux > « Scanner un dossier » puis choix du dossier
+        admin_->OpenTab("Jeux");
+        admin_->OnDialogResult(AdminUI::Field::ScanFolder, tok.substr(11));
+    }
     else if (tok.rfind("shareExport:", 0) == 0) {  // = bouton « Exporter la configuration » (options par défaut)
         std::string summary, err;
         bool ok = share::Export(lib_, paths_, {}, util::U8Path(tok.substr(12)), summary, err);
@@ -1524,6 +1539,15 @@ void App::OnGameFinished(const LaunchResult& r) {
     RefreshItems();
     SaveNavState();
     logx::Info("Navigation restaurée");
+}
+
+const char* App::Version() { return kVersion; }
+
+bool App::InstallUpdate(std::string& err) {
+    if (!updater_.LaunchInstall(paths_.exeDir, paths_.dataDir, sys::AutoStartEnabled(), settings_.kiosk, err)) return false;
+    SaveNavState();
+    running_ = false;  // code 0 : la surveillance éventuelle s'arrête, le script installe puis relance
+    return true;
 }
 
 void App::LeaveLaunchScreen(void* gameWindow, const char* why) {

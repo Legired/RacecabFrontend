@@ -73,6 +73,8 @@ bool Settings::Load(const fs::path& file) {
     Get(j, "cabMode", cabMode);
     if (cabMode != "guncab") cabMode = "racecab";
     Get(j, "kiosk", kiosk);
+    Get(j, "updateRepo", updateRepo);
+    Get(j, "updateAutoCheck", updateAutoCheck);
     Get(j, "autoBackup", autoBackup);
     Get(j, "backupKeep", backupKeep);
     if (j.contains("gun")) {
@@ -121,6 +123,8 @@ bool Settings::Save(const fs::path& file) const {
               {"askProfileAtStartup", askProfileAtStartup},
               {"cabMode", cabMode},
               {"kiosk", kiosk},
+              {"updateRepo", updateRepo},
+              {"updateAutoCheck", updateAutoCheck},
               {"autoBackup", autoBackup},
               {"backupKeep", backupKeep},
               {"gun",

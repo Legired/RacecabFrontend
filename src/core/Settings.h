@@ -36,6 +36,8 @@ struct Settings {
     bool kiosk = false;            // borne publique : plein écran imposé, « Quitter » retiré du menu de la borne
     bool autoBackup = true;        // sauvegarde automatique de la configuration (une fois par jour au démarrage)
     int backupKeep = 10;           // nombre de sauvegardes automatiques conservées
+    std::string updateRepo = "Legired/RacecabFrontend";  // dépôt GitHub public des mises à jour (releases)
+    bool updateAutoCheck = true;   // vérifier au démarrage (une requête, sans rien télécharger)
     GunSettings gun;
     std::string theme = "default";
     bool fullscreen = true;

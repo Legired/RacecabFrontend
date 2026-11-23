@@ -24,7 +24,7 @@ Un même programme sert pour deux types de borne :
 
 Aucun droit administrateur n'est nécessaire.
 
-- **Mettre à jour** : relance `Installer.bat` d'une version plus récente, avec le même dossier. Tes jeux, images et réglages sont conservés.
+- **Mettre à jour** : le frontend vérifie tout seul au démarrage si une nouvelle version est publiée, et l'annonce par un message. Ensuite, dans Administration > **Système** > *Mises à jour* : *Télécharger la mise à jour*, puis *Installer et redémarrer le frontend*. Tes jeux, images et réglages sont conservés, ainsi que le type de borne, le démarrage avec Windows et le mode kiosque. Tu peux aussi relancer `Installer.bat` d'une version plus récente, avec le même dossier.
 - **Désinstaller** : `Desinstaller.bat` dans le dossier du programme. Tes données ne sont pas supprimées.
 
 ---
@@ -33,7 +33,10 @@ Aucun droit administrateur n'est nécessaire.
 
 Tout se fait dans l'**administration** : touche **F1** au clavier, ou menu de la borne > *Administration*. Elle s'utilise à la souris.
 
-1. **Onglet Jeux** : *Ajouter un jeu*. Donne le nom et le fichier à lancer (`.exe` ou `.bat`), puis les catégories (Course, Tir…).
+1. **Onglet Jeux** : *Scanner un dossier* pour ajouter beaucoup de jeux d'un coup, ou *Ajouter un jeu* pour un seul jeu (nom, fichier à lancer `.exe` ou `.bat`, catégories).
+   - **Scanner un dossier** : choisis le dossier qui contient tes jeux (par exemple `H:\LinuxLoader`). Le frontend trouve les jeux (`.exe`, `.bat`, jeux LinuxLoader) et les reconnaît avec la base LaunchBox (vrai nom, année, éditeur). Il propose une catégorie selon le genre : course vers la Racecab, tir vers la GunCab. La colonne *Borne* indique où chaque jeu apparaîtra.
+   - Les jeux **déjà dans le frontend** sont signalés et ne peuvent pas être cochés. Les **doublons dans la liste** (le même jeu trouvé deux fois) sont signalés aussi : le meilleur lanceur reste coché.
+   - Coche les jeux voulus, ajuste leur nom ou leur catégorie (un par un, ou *Appliquer aux jeux cochés*), puis clique sur *Ajouter*. Les logos et images sont ensuite récupérés automatiquement.
    On peut aussi importer une liste toute prête (voir `docs\Import.md`).
 2. **Onglet Médias** :
    - *Télécharger / mettre à jour la base LaunchBox* (110 Mo, une seule fois, sans compte) ;

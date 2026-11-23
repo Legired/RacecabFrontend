@@ -2,10 +2,14 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
+#include <atomic>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "library/Model.h"
+#include "library/Scanner.h"
 
 class App;
 
@@ -24,7 +28,7 @@ public:
     void Render();
 
     // Résultat d'une boîte de dialogue native (appelé depuis n'importe quel thread)
-    enum class Field { None, Launch, WorkDir, Logo, Fanart, Video, Import, ThemeBackground, ShareExport, ShareImport };
+    enum class Field { None, Launch, WorkDir, Logo, Fanart, Video, Import, ThemeBackground, ShareExport, ShareImport, ScanFolder };
     void OnDialogResult(Field f, const std::string& path);
 
     // Ouvre l'administration sur un onglet donné (tests automatisés).
@@ -55,6 +59,27 @@ private:
     void NewGame();
     bool SaveGame(bool allowDuplicate);
     void ApplyPendingDialog();
+    // Ajout automatique : scan d'un dossier (thread), liste des jeux trouvés, ajout en lot
+    void StartScan(const std::string& root);
+    void WindowScan();
+    std::string CabsOf(int64_t category);   // « Racecab », « GunCab », « Racecab + GunCab », « aucune borne »
+    int64_t CabDefaultCategory(const std::string& cab);
+
+    struct ScanRow {
+        ScanCandidate c;
+        bool sel = false;
+        int64_t cat = 0;  // catégorie choisie (0 = aucune)
+    };
+    std::thread scanThread_;
+    std::atomic<bool> scanBusy_{false}, scanCancel_{false};
+    std::mutex scanM_;
+    std::string scanStatus_, scanRoot_;
+    std::vector<ScanCandidate> scanDone_;
+    bool scanReady_ = false, scanOpen_ = false, scanFetchMedia_ = true;
+    std::vector<ScanRow> scanRows_;
+    int64_t scanBulkCat_ = 0;
+    std::vector<std::pair<std::string, std::vector<int64_t>>> cabProfiles_;  // (mode, catégories masquées), relu toutes les 2 s
+    uint64_t cabProfilesAt_ = 0;
 
     App& app_;
     SDL_Window* window_ = nullptr;
@@ -96,6 +121,7 @@ private:
     void SaveFile(Field f, const char* filterName, const char* pattern, const std::string& defaultName);
     void RefreshImportPreview();
     void SectionShare();
+    void SectionUpdates();
     bool ytToEnd_ = false;
     int64_t searchGame_ = 0;
     bool overwriteMedia_ = false;

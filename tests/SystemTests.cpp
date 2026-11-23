@@ -2,6 +2,7 @@
 #include <sqlite3.h>
 #include <windows.h>
 
+#include <atomic>
 #include <cstdio>
 #include <format>
 #include <fstream>
@@ -11,6 +12,8 @@
 #include "core/ConfigShare.h"
 #include "core/Settings.h"
 #include "library/Library.h"
+#include "library/Scanner.h"
+#include "core/Updater.h"
 #include "core/Log.h"
 #include "media/Zip.h"
 
@@ -230,6 +233,53 @@ int main() {
         Write(root / L"pas-config.zip", "PK");
         CHECK(!share::ReadPreview(b, root / L"pas-config.zip", {}, {}, pv, err) && !err.empty());
     }
+
+    std::printf("- Ajout automatique : scan d'un dossier de jeux\n");
+    {
+        fs::path g = root / L"scan";
+        Write(g / L"Initial D Arcade Stage 8 Infinity (2014) (Japan) [TP]" / L"ID8.exe", std::string(600 * 1024, 'x'));
+        Write(g / L"Initial D Arcade Stage 8 Infinity (2014) (Japan) [TP]" / L"unins000.exe", std::string(700 * 1024, 'x'));
+        Write(g / L"loaders" / L"id4.bat", "@echo off\nstart.exe\n");
+        Write(g / L"loaders" / L"twd.bat", "@echo off\nrem pause en commentaire\nloader.exe\npause >nul\n");
+        Write(g / L"loaders" / L"build_all.bat", "x");
+        Write(g / L"backup-old" / L"Old" / L"game.exe", std::string(600 * 1024, 'x'));
+        Write(g / L"ll" / L"linuxloader.exe", "MZ");
+        const std::string elf = std::string("\x7f" "ELF") + std::string(100, '\0');
+        Write(g / L"ll" / L"cruisnblast" / L"game", elf);
+        Write(g / L"ll" / L"cruisnblast" / L"linuxloader.ini", "");
+        Write(g / L"ll" / L"games" / L"hummer" / L"disk0" / L"hummer_Master.elf", elf);
+        std::atomic<bool> cancel{false};
+        auto list = scanner::Scan(g, cancel, [](const std::string&) {});
+        auto find = [&](const std::string& n) -> const ScanCandidate* {
+            for (auto& c : list)
+                if (c.name == n) return &c;
+            return nullptr;
+        };
+        for (auto& c : list) std::printf("    %s [%s] %s %s\n", c.name.c_str(), c.kind.c_str(), c.launchPath.c_str(), c.args.c_str());
+        CHECK(list.size() == 5);  // ID8, id4, twd, cruisnblast, hummer (ni désinstalleur, ni build_all, ni sauvegarde)
+        auto id8 = find("Initial D Arcade Stage 8 Infinity");
+        CHECK(id8 && id8->kind == "exe" && id8->launchPath.find("ID8.exe") != std::string::npos);
+        auto twd = find("twd");
+        CHECK(twd && twd->kind == "bat" && twd->runMode == RunMode::Normal);  // « pause » réelle détectée
+        auto id4 = find("id4");
+        CHECK(id4 && id4->runMode == RunMode::Auto);  // pas de pause (le commentaire ne compte pas)
+        auto cb = find("cruisnblast");
+        CHECK(cb && cb->kind == "linuxloader" && cb->runMode == RunMode::Hidden && cb->args.find("-g") != std::string::npos &&
+              cb->launchPath.find("linuxloader.exe") != std::string::npos);
+        auto hm = find("hummer");  // dossier « disk0 » générique : nom du dossier parent
+        CHECK(hm && hm->kind == "linuxloader" && hm->args.find("hummer_Master.elf") != std::string::npos);
+        CHECK(scanner::Alias("ID4") == "Initial D Arcade Stage 4" && scanner::Alias("twd") == "The Walking Dead" &&
+              scanner::Alias("inconnu").empty());
+        CHECK(scanner::CleanName("Mario Kart Arcade GP DX (1.18.16) (English Mod 1.0) (2013) [Namco ES3A] [TP]") ==
+              "Mario Kart Arcade GP DX");
+        CHECK(scanner::CleanName("Sega_World_Drivers v1.03.00") == "Sega World Drivers");
+    }
+
+    std::printf("- Mises à jour : comparaison de versions\n");
+    CHECK(Updater::CompareVersions("0.6.1", "0.6.0") > 0 && Updater::CompareVersions("v0.6.0", "0.6.0") == 0);
+    CHECK(Updater::CompareVersions("0.10.0", "0.9.9") > 0 && Updater::CompareVersions("0.6", "0.6.0") == 0);
+    CHECK(Updater::CompareVersions("0.5.0 (phase 5)", "0.6.0") < 0 && Updater::CompareVersions("1.0.0-beta", "0.9.0") > 0);
+    CHECK(!Updater::CanInstall(root));  // dossier sans datadir.txt : copie de développement
 
     logx::Shutdown();
     fs::remove_all(root, ec);

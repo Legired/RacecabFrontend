@@ -72,6 +72,41 @@ La bande de logos de la Racecab est remplacée par deux vues pensées pour le ti
 - Toute entrée d'archive qui sortirait des dossiers `config/`, `db/`, `themes/` ou `media/` (`..`, chemin absolu, autre dossier) est ignorée.
 - Limite connue : un fichier créé après la sauvegarde (nouveau profil, par exemple) n'est pas supprimé par la restauration.
 
+## Ajout automatique de jeux (scan d'un dossier)
+Code : `src/library/Scanner.cpp` (détection) et `AdminUI::WindowScan` (liste). Le disque est seulement lu.
+
+- **Détection** (profondeur 6) :
+  - jeu LinuxLoader :
+    - dossier avec un ELF `game` et un `linuxloader.ini` : arguments `-g "<dossier>" -c "linuxloader.ini"` ;
+    - ou un fichier `.elf` : l'ELF en argument ;
+    - dans les deux cas, `linuxloader.exe` du dossier, sinon d'un parent, sinon le plus récent trouvé sous le dossier scanné ; console masquée ;
+  - dossier « de lanceurs », avec au moins deux `.bat` : chaque `.bat` est un jeu ;
+  - sinon un `.bat` principal (`run`, `launch`, `start`, `play`…), ou le plus gros `.exe` (au moins 512 Ko).
+- **Ignoré** : installateurs, désinstalleurs, redistribuables, gestionnaires de plantage, outils, chargeurs (TeknoParrot, linuxloader seul), `.bat` de compilation ou de débogage, dossiers de compilation, de dépendances, de sauvegarde (`backup*`, `*-bak*`, `*-orig`, `*-old`), de langues et de journaux.
+- **Nom** : celui du dossier, nettoyé (sans `(…)`, `[…]` ni numéro de version). Pour un dossier générique (`pm`, `disk0`, `bin`…), c'est le dossier parent qui donne le nom. Les abréviations courantes sont développées (`id4` → Initial D Arcade Stage 4).
+- **Reconnaissance** : index LaunchBox local (nom ou nom alternatif identique), qui donne le titre officiel, l'année, l'éditeur, le genre et la description. Genre course → catégorie visible seulement sur la Racecab ; tir → seulement sur la GunCab. La colonne *Borne* se calcule à partir des profils.
+- **Doublons** :
+  - déjà dans le frontend : même fichier et mêmes arguments, ou un des noms connus (dossier, abréviation, titre LaunchBox) égal au nom ou au nom alternatif d'un jeu présent. La case est grisée ;
+  - dans la liste : un seul résultat par jeu, dans l'ordre de préférence LinuxLoader > `.exe` > `.bat` sans pause > `.bat` avec pause ;
+  - à l'ajout, une dernière vérification ignore tout jeu déjà présent ou ajouté deux fois.
+- Un `.bat` qui contient `pause` (hors commentaires) est lancé avec sa console visible, sinon la borne attendrait une touche invisible.
+- Essai réel : `H:\LinuxLoader` donne 7 résultats en moins de 5 s. Initial D 4 et 5 sont signalés « déjà dans le frontend », la copie de Cruis'n Blast (`.bat`) est un doublon. Hummer, Cruis'n Blast et The Walking Dead sont cochés, rangés en Course › Arcade (Racecab) et Tir - GunCab (GunCab). `H:\windowsloader` : 10 jeux, tous déjà présents.
+- Test automatique (`system_tests`, 9 vérifications) : arborescence factice avec jeu TeknoParrot, désinstalleur, dossier de lanceurs, `pause` en commentaire et réelle, sauvegarde, deux jeux LinuxLoader.
+
+## Mises à jour (releases GitHub)
+Code : `src/core/Updater.cpp`. Réglages : `updateRepo` (`Legired/RacecabFrontend` par défaut, dépôt public, API sans compte) et `updateAutoCheck`.
+
+- **Vérification** au démarrage, en tâche de fond : une requête à `api.github.com/repos/<dépôt>/releases/latest`. La version (tag `v0.6.1`) est comparée à celle du programme, numéro par numéro. Le paquet retenu est l'asset `RacecabFrontend-*.zip` (pas celui des sources). S'il y a une version plus récente, un message s'affiche.
+- **Téléchargement**, seulement sur demande : vers `<données>\updates`, avec contrôle de la taille. Si la release contient `<zip>.sha256`, l'empreinte doit correspondre exactement, sinon la mise à jour est refusée. Le paquet est ensuite extrait (entrées `..`, `:` ou absolues ignorées) et doit contenir `install.ps1` et `RacecabFrontend.exe`.
+- **Installation** : le frontend écrit `updates\appliquer-mise-a-jour.ps1`, le lance (console masquée, hors du Job parent) et se ferme avec le code 0, ce qui arrête aussi la surveillance. Le script :
+  1. attend que plus aucun `RacecabFrontend.exe` du dossier d'installation ne tourne ;
+  2. exécute `install.ps1 -Quiet -NoShortcut -InstallDir <dossier>`, avec `-AutoStart` et `-Kiosk` selon l'état actuel. Le type de borne et le dossier de données sont repris de l'installation existante ;
+  3. relance le frontend (`--watchdog` si le démarrage avec Windows est actif).
+  Journal : `updates\mise-a-jour.log`.
+- **Copie de développement** (pas de `datadir.txt` à côté du programme) : la vérification marche, l'installation est désactivée.
+- **Publier une version** : mettre la version dans `kVersion` (`src/app/App.cpp`) et dans `package.ps1`, ajouter la section `## <version>` à `docs\Nouveautes.md`, puis lancer `tools\release.ps1 -Version <version>`. Le script compile, crée le paquet et son `.sha256`, et publie la release avec ces notes (`gh release create`). `-DryRun` fait tout sauf la publication.
+- **Essai réel** (serveur local qui imite l'API GitHub, release 0.6.1 de test) sur une installation 0.6.0 GunCab : vérification, téléchargement de 34 Mo, contrôle SHA-256, extraction, fermeture (code 0), installation (code 0), relance automatique ; fichier témoin de la 0.6.1 présent, type de borne GunCab conservé.
+
 ## Partage de la configuration (export / import)
 Code : `src/core/ConfigShare.cpp`. Administration > Système > *Partager la configuration*.
 

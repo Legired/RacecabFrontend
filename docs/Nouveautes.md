@@ -27,6 +27,15 @@
 - Option facultative, désactivée par défaut : télécharger automatiquement la vidéo que propose LaunchBox. Leur qualité est très variable.
 - Usage personnel uniquement : les conditions d'utilisation de YouTube interdisent le téléchargement.
 
+### Ajout automatique de jeux
+- Administration > Jeux > **Scanner un dossier** : le frontend trouve les jeux du dossier (`.exe`, `.bat`, jeux LinuxLoader lancés directement), les reconnaît avec la base LaunchBox et propose la catégorie, donc la borne. Coche, ajuste, puis ajoute tout d'un coup.
+- **Aucun doublon** : les jeux déjà présents sont signalés et ne peuvent pas être cochés, et le même jeu trouvé deux fois n'est proposé qu'une fois. Les abréviations courantes (`id4`, `twd`, `swdc`, `mkdx`…) sont reconnues.
+- Les installateurs, désinstalleurs, outils et dossiers de sauvegarde sont ignorés. Un `.bat` qui se termine par `pause` garde sa console visible, pour qu'on puisse la fermer.
+
+### Mises à jour automatiques
+- Au démarrage, le frontend regarde si une nouvelle version est publiée sur GitHub et l'annonce. Administration > Système > *Mises à jour* : *Télécharger*, puis *Installer et redémarrer*. Il n'y a rien à refaire à la main, et tes jeux et réglages sont conservés.
+- Le paquet est vérifié (empreinte SHA-256) avant l'installation.
+
 ### Partager sa configuration
 - Administration > Système > **Exporter la configuration** : un fichier `.zip` avec tes jeux (chemins, catégories, infos), les liens YouTube des vidéos, les profils et les thèmes, et les images si tu le souhaites.
 - Sur l'autre borne : **Importer une configuration**. Si les jeux n'y sont pas rangés au même endroit, indique le dossier des jeux : le début des chemins est remplacé. Les vidéos YouTube sont téléchargées automatiquement.
