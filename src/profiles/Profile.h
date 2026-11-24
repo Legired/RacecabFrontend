@@ -8,7 +8,7 @@
 struct VideoSettings {
     bool enabled = true;
     bool loop = true;
-    float volume = 0.6f;
+    float volume = 0.8f;  // curseur 0..1, courbe perceptive (0.8 ≈ -6 dB)
     bool mute = false;
     int delayMs = 400;  // la vidéo démarre quand la sélection reste stable ce temps-là
     bool hwDecode = true;
@@ -24,8 +24,7 @@ struct AttractSettings {
     bool random = true;             // sinon : ordre de la liste
     std::vector<int64_t> categories;  // catégories présentées (vide = toutes celles du profil)
     bool video = true;
-    float volume = 0.3f;
-    bool mute = false;
+    bool mute = false;              // son coupé pendant la démo (le volume est celui des vidéos, réglé dans Affichage)
     float speed = 0.6f;             // vitesse de défilement de la roue (x vitesse du thème)
 };
 

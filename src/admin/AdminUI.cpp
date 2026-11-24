@@ -7,6 +7,7 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -1472,10 +1473,11 @@ void AdminUI::TabProfiles() {
     ImGui::SameLine();
     ImGui::Checkbox("Vidéos", &a.video);
     ImGui::SameLine();
-    ImGui::Checkbox("Muet", &a.mute);
+    if (ImGui::Checkbox("Couper le son pendant la démo", &a.mute)) app_.SaveProfile();
+    Help("Le volume est le même partout (Affichage > Vidéo > Volume). Cochée : la démonstration est silencieuse, "
+         "pratique pour une borne qui attend sans faire de bruit.");
     ImGui::SetNextItemWidth(300); ImGui::SliderInt("Inactivité avant démarrage (s)", &a.idleSeconds, 10, 1800);
     ImGui::SetNextItemWidth(300); ImGui::SliderInt("Durée par jeu (s)", &a.displaySeconds, 3, 120);
-    ImGui::SetNextItemWidth(300); ImGui::SliderFloat("Volume", &a.volume, 0.0f, 1.0f, "%.2f");
     ImGui::SetNextItemWidth(300); ImGui::SliderFloat("Vitesse de défilement", &a.speed, 0.1f, 2.0f, "%.1f");
     ImGui::TextDisabled("La démonstration s'arrête à la moindre commande et ne lance jamais de jeu.");
     if (ImGui::TreeNode("Catégories présentées (aucune cochée = toutes celles du profil)")) {
@@ -2000,26 +2002,34 @@ void AdminUI::TabDisplay() {
     Settings& s = app_.Config();
     VideoSettings& vs = prof.video;
     ImGui::SeparatorText("Vidéo (réglage du profil)");
-    ImGui::Checkbox("Lecture des vidéos", &vs.enabled);
+    // Enregistrement automatique : chaque changement est gardé dans le profil (plus de bouton à ne pas oublier).
+    bool save = false;
+    save |= ImGui::Checkbox("Lecture des vidéos", &vs.enabled);
     ImGui::SameLine();
-    ImGui::Checkbox("En boucle", &vs.loop);
+    save |= ImGui::Checkbox("En boucle", &vs.loop);
     ImGui::SameLine();
     bool vol = ImGui::Checkbox("Muet", &vs.mute);
     ImGui::SameLine();
-    ImGui::Checkbox("Décodage matériel (D3D11VA)", &vs.hwDecode);
-    ImGui::Checkbox("Retirer les bandes noires des vidéos", &vs.autoCrop);
+    save |= ImGui::Checkbox("Décodage matériel (D3D11VA)", &vs.hwDecode);
+    save |= ImGui::Checkbox("Retirer les bandes noires des vidéos", &vs.autoCrop);
     Help("Certaines vidéos ont des bandes noires dans l'image elle-même. Elles sont détectées automatiquement "
          "(5 images analysées une fois par vidéo, en tâche de fond) et masquées à l'affichage. Le fichier n'est pas modifié.");
-    ImGui::Checkbox("Fond flou autour de la vidéo", &vs.blurFill);
+    save |= ImGui::Checkbox("Fond flou autour de la vidéo", &vs.blurFill);
     Help("Quand la vidéo n'a pas la forme du cadre, les bandes sont remplies par la vidéo elle-même, agrandie, floue "
          "et assombrie (aucune déformation, rien n'est coupé). Décoché : bandes noires.");
     ImGui::SetNextItemWidth(400);
-    vol |= ImGui::SliderFloat("Volume", &vs.volume, 0.0f, 1.0f, "%.2f");
-    if (vol) app_.Video()->SetVolume(vs.volume, vs.mute);
+    int pct = (int)std::lround(vs.volume * 100.0f);
+    const bool moving = ImGui::SliderInt("Volume", &pct, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp);
+    if (moving) vs.volume = pct / 100.0f;
+    if (vol || moving) app_.Video()->SetVolume(vs.volume, vs.mute);  // effet immédiat sur la vidéo en cours
+    save |= vol || ImGui::IsItemDeactivatedAfterEdit();               // enregistré au relâchement du curseur
+    Help("Volume des vidéos partout : menu, démonstration et écran de chargement (un peu plus bas). Le changement est "
+         "immédiat et enregistré dans le profil. Pour une démonstration silencieuse : Profils > « Couper le son pendant la démo ».");
     ImGui::SetNextItemWidth(400);
     ImGui::SliderInt("Délai avant lecture (ms)", &vs.delayMs, 0, 2000);
+    save |= ImGui::IsItemDeactivatedAfterEdit();
     Help("La vidéo ne démarre que lorsque la sélection reste immobile pendant ce délai : rien n'est décodé pendant le défilement.");
-    if (ImGui::Button("Enregistrer les réglages vidéo du profil")) {
+    if (save) {
         app_.SaveProfile();
         message_ = "Réglages vidéo enregistrés dans le profil " + app_.ProfileName() + ".";
         messageError_ = false;
@@ -2031,10 +2041,13 @@ void AdminUI::TabDisplay() {
     bool apply = false;
     apply |= ImGui::Checkbox("Plein écran", &s.fullscreen);
     apply |= ImGui::Checkbox("Synchronisation verticale (VSync)", &s.vsync);
-    ImGui::Checkbox("Masquer le curseur hors administration", &s.hideCursor);
-    ImGui::Checkbox("Réduire le frontend pendant le jeu", &s.minimizeDuringGame);
+    bool saveWin = apply;
+    saveWin |= ImGui::Checkbox("Masquer le curseur hors administration", &s.hideCursor);
+    saveWin |= ImGui::Checkbox("Réduire le frontend pendant le jeu", &s.minimizeDuringGame);
     ImGui::SetNextItemWidth(200);
     ImGui::SliderInt("Écran de chargement : durée maximale (s)", &s.launchScreenMaxSec, 5, 300);
+    saveWin |= ImGui::IsItemDeactivatedAfterEdit();
+    if (saveWin) app_.SaveSettings();
     Help("Au lancement d'un jeu, l'écran de chargement reste au premier plan jusqu'à l'apparition de la vraie "
          "fenêtre du jeu (la fenêtre cmd des .bat est masquée). Si aucune fenêtre n'est repérée, il s'efface "
          "après cette durée. Retour pendant le chargement l'efface tout de suite.");

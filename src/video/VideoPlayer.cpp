@@ -13,6 +13,7 @@ extern "C" {
 #include <condition_variable>
 #include <deque>
 #include <format>
+#include <algorithm>
 #include <mutex>
 #include <thread>
 
@@ -144,7 +145,8 @@ void VideoPlayer::Session::Run() {
 
     // Son (facultatif)
     const AVCodec* acodec = nullptr;
-    as = opt.mute ? -1 : av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, vs, &acodec, 0);
+    // Piste son toujours ouverte (même en muet : gain 0) pour que « Muet » et le volume agissent en direct.
+    as = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, vs, &acodec, 0);
     if (as >= 0 && acodec) {
         actx = avcodec_alloc_context3(acodec);
         avcodec_parameters_to_context(actx, fmt->streams[as]->codecpar);
@@ -287,7 +289,7 @@ void VideoPlayer::Open(const std::string& path, const VideoOptions& opt) {
     cur_ = std::make_unique<Session>();
     cur_->path = path;
     cur_->opt = opt;
-    cur_->gain = opt.mute ? 0.0f : opt.volume;
+    cur_->gain = opt.mute ? 0.0f : PerceivedGain(opt.volume);
     if (opt.hwDecode && !hwDevice_ && !hwDeviceFailed_) {
         hwDeviceFailed_ = av_hwdevice_ctx_create(&hwDevice_, AV_HWDEVICE_TYPE_D3D11VA, nullptr, nullptr, 0) != 0;
         if (hwDeviceFailed_) logx::Warn("Vidéo : décodage matériel D3D11VA indisponible, décodage logiciel");
@@ -298,7 +300,14 @@ void VideoPlayer::Open(const std::string& path, const VideoOptions& opt) {
 }
 
 void VideoPlayer::SetVolume(float volume, bool mute) {
-    if (cur_) cur_->gain = mute ? 0.0f : volume;
+    if (cur_) cur_->gain = mute ? 0.0f : PerceivedGain(volume);
+}
+
+// L'oreille perçoit le volume de façon logarithmique : un réglage linéaire (gain = curseur) ne change presque
+// rien entre 30 % et 100 %. Courbe cubique : 50 % ≈ -18 dB, 25 % ≈ -36 dB, 100 % = gain 1.
+float VideoPlayer::PerceivedGain(float volume) {
+    float v = std::clamp(volume, 0.0f, 1.0f);
+    return v * v * v;
 }
 
 SDL_Texture* VideoPlayer::Frame() {

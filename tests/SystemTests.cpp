@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <format>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include "library/Library.h"
 #include "library/Scanner.h"
 #include "core/Updater.h"
+#include "profiles/Profile.h"
 #include "core/Log.h"
 #include "media/Zip.h"
 
@@ -280,6 +282,20 @@ int main() {
     CHECK(Updater::CompareVersions("0.10.0", "0.9.9") > 0 && Updater::CompareVersions("0.6", "0.6.0") == 0);
     CHECK(Updater::CompareVersions("0.5.0 (phase 5)", "0.6.0") < 0 && Updater::CompareVersions("1.0.0-beta", "0.9.0") > 0);
     CHECK(!Updater::CanInstall(root));  // dossier sans datadir.txt : copie de développement
+
+    std::printf("- Volume : profils d'avant la courbe perceptive convertis une seule fois\n");
+    {
+        Write(root / L"vol" / L"ancien.json", "{\"video\":{\"volume\":0.6},\"attract\":{\"volume\":0.3}}");
+        Profile p;
+        CHECK(p.Load(root / L"vol" / L"ancien.json"));
+        CHECK(std::abs(p.video.volume - 0.843f) < 0.01f);  // même niveau sonore
+        CHECK(p.Save(root / L"vol" / L"nouveau.json"));
+        Profile q;
+        CHECK(q.Load(root / L"vol" / L"nouveau.json") && std::abs(q.video.volume - p.video.volume) < 0.001f);  // pas de double conversion
+        Write(root / L"vol" / L"vide.json", "{}");
+        Profile d;
+        CHECK(d.Load(root / L"vol" / L"vide.json") && d.video.volume == 0.8f);  // valeurs par défaut non converties
+    }
 
     logx::Shutdown();
     fs::remove_all(root, ec);

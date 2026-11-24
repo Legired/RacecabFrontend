@@ -1,6 +1,7 @@
 #include "profiles/Profile.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -57,9 +58,14 @@ bool Profile::Load(const fs::path& file) {
         Get(a, "random", attract.random);
         Get(a, "categories", attract.categories);
         Get(a, "video", attract.video);
-        Get(a, "volume", attract.volume);
         Get(a, "mute", attract.mute);
         Get(a, "speed", attract.speed);
+    }
+    // Profils d'avant la courbe de volume perceptive (0.6.2) : volumes enregistrés comme gains linéaires.
+    // Conversion unique pour garder le même niveau sonore : curseur = racine cubique de l'ancien gain.
+    if (j.value("volumeCurve", 1) < 2) {
+        if (j.contains("video") && j["video"].contains("volume"))
+            video.volume = std::cbrt(std::clamp(video.volume, 0.0f, 1.0f));
     }
     attract.idleSeconds = std::max(5, attract.idleSeconds);
     attract.displaySeconds = std::max(2, attract.displaySeconds);
@@ -68,6 +74,7 @@ bool Profile::Load(const fs::path& file) {
 
 bool Profile::Save(const fs::path& file) const {
     json j = {{"theme", theme},
+              {"volumeCurve", 2},
               {"mode", mode},
               {"sort", sort},
               {"hiddenCategories", hiddenCategories},
@@ -89,7 +96,6 @@ bool Profile::Save(const fs::path& file) const {
                 {"random", attract.random},
                 {"categories", attract.categories},
                 {"video", attract.video},
-                {"volume", attract.volume},
                 {"mute", attract.mute},
                 {"speed", attract.speed}}}};
     std::error_code ec;

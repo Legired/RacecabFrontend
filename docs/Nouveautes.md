@@ -1,5 +1,15 @@
 # Racecab Frontend : nouveautés
 
+## 0.6.2 (2026-11-24)
+
+**Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.
+
+### Volume des vidéos
+- **Un seul volume** pour toutes les vidéos : Administration > Affichage > Vidéo > *Volume* (menu, démonstration et écran de chargement). La démonstration n'a plus de curseur à part, seulement une case *Couper le son pendant la démo*.
+- **Le réglage est enregistré tout seul** : avant, il fallait cliquer sur « Enregistrer », sinon il était perdu au démarrage suivant. C'est la même chose pour les autres réglages vidéo et ceux de la fenêtre.
+- **Le curseur suit l'oreille** et s'affiche en pourcentage : 50 % donne maintenant un son nettement plus bas. Avant, on n'entendait presque aucune différence entre 30 % et 100 %. Ton volume actuel est converti pour garder le même niveau sonore.
+- **Muet agit tout de suite**, même sur une vidéo déjà lancée.
+
 ## 0.6.1 (2026-11-23)
 
 **Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.

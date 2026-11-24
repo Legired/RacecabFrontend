@@ -21,7 +21,7 @@
 #include "media/YtVideo.h"
 
 namespace {
-constexpr const char* kVersion = "0.6.1";
+constexpr const char* kVersion = "0.6.2";
 
 bool Inside(const SDL_FRect& r, SDL_FPoint p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; }
 
@@ -1512,7 +1512,7 @@ void App::LaunchGame(int64_t id) {
     // la fenêtre du jeu apparaît : aucun décodage ni son pendant le jeu.
     if (video_ && !video_->Path().empty()) {
         if (video_->Path() == lib_.VideoFor(*g) && profile_.video.enabled)
-            video_->SetVolume(profile_.video.volume * 0.5f, profile_.video.mute);
+            video_->SetVolume(profile_.video.volume * 0.7f, profile_.video.mute);  // ≈ -10 dB
         else
             video_->Stop();
     }
@@ -1624,8 +1624,8 @@ void App::UpdateVideo(uint64_t now) {
         uint64_t delay = attract ? 0 : (uint64_t)v.delayMs;
         bool stable = loading || (Elapsed(now, selectionChangedAt_) >= delay && !wheel_.Animating());
         if (!want.empty() && stable && !video_->Failed(want))
-            video_->Open(want, {v.loop, attract ? profile_.attract.volume : loading ? v.volume * 0.5f : v.volume,
-                                attract ? profile_.attract.mute : v.mute, v.hwDecode});
+            video_->Open(want, {v.loop, loading ? v.volume * 0.7f : v.volume,  // un seul volume, réglé dans Affichage
+                                v.mute || (attract && profile_.attract.mute), v.hwDecode});
     }
 }
 

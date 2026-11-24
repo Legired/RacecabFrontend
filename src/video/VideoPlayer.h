@@ -27,6 +27,7 @@ public:
     void Open(const std::string& path, const VideoOptions& opt);
     void Stop();
     void SetVolume(float volume, bool mute);
+    static float PerceivedGain(float volume);  // curseur 0..1 -> gain audio (courbe perceptive)
 
     SDL_Texture* Frame();              // nullptr tant qu'aucune image n'est prête
     const std::string& Path() const { return path_; }

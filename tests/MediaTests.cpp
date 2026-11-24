@@ -3,11 +3,14 @@
 // 1) Services réels sans identifiants : les erreurs doivent être comprises et lisibles.
 // 2) Serveur de simulation : recherche, choix, téléchargement, fichiers écrits, métadonnées.
 #include <windows.h>
+#include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <string>
+#include <vector>
 #include <thread>
 
 #include "core/Log.h"
@@ -116,6 +119,25 @@ int main(int argc, char** argv) {
     CHECK(ytvideo::StartFromUrl("https://youtu.be/abc?t=95") == 95);
     CHECK(ytvideo::StartFromUrl("https://www.youtube.com/watch?v=abc&t=2m5s") == 125);
     CHECK(ytvideo::StartFromUrl("https://www.youtube.com/watch?v=abc") == -1);
+
+    std::printf("- Volume : gain appliqué aux échantillons (courbe perceptive)\n");
+    {
+        SDL_Init(SDL_INIT_AUDIO);  // pilote audio non requis : flux de conversion seul
+        SDL_AudioSpec spec{SDL_AUDIO_F32, 2, 48000};
+        SDL_AudioStream* st = SDL_CreateAudioStream(&spec, &spec);
+        CHECK(st != nullptr);
+        if (st) {
+            const float gain = 0.5f * 0.5f * 0.5f;  // curseur 50 % -> gain 0,125 (≈ -18 dB)
+            SDL_SetAudioStreamGain(st, gain);
+            std::vector<float> in(960, 0.8f), out(960, 0.0f);
+            SDL_PutAudioStreamData(st, in.data(), (int)(in.size() * sizeof(float)));
+            SDL_FlushAudioStream(st);
+            int got = SDL_GetAudioStreamData(st, out.data(), (int)(out.size() * sizeof(float)));
+            CHECK(got > 0 && std::abs(out[100] - 0.8f * gain) < 0.001f);
+            std::printf("    échantillon 0,80 -> %.3f (gain %.3f)\n", got > 0 ? out[100] : -1.0f, gain);
+            SDL_DestroyAudioStream(st);
+        }
+    }
 
     std::printf("- Aucun identifiant : refus immédiat, sans appel réseau\n");
     {

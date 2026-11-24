@@ -46,7 +46,7 @@ Deux thèmes sont fournis :
 ## Mode démonstration (attract mode)
 - Démarre après une **inactivité** réglable (120 s par défaut), uniquement sur l'écran de navigation : pas dans un menu, l'administration ou pendant un jeu.
 - Fait défiler les jeux du profil : **aléatoire** (jamais deux fois le même de suite) ou dans l'ordre, une durée réglable par jeu (12 s par défaut), en se limitant éventuellement à certaines catégories.
-- Montre logo, informations et vidéo (si activée), avec un volume propre à la démo (30 % par défaut) ou muet, et une vitesse de défilement réglable.
+- Montre logo, informations et vidéo (si activée), au même volume que les vidéos du menu (un seul réglage : Affichage > Vidéo > Volume), ou en silence avec « Couper le son pendant la démo ». La vitesse de défilement est réglable.
 - **Interruption prioritaire** : la moindre action (touche, bouton même non associé, chapeau, volant ou pédale sortis de leur position de repos) arrête la démo **immédiatement**, sans animation. La liste et le jeu sélectionnés avant la démo sont restaurés. Cette première action n'a pas d'autre effet : appuyer sur *Valider* pour réveiller la borne ne lance pas de jeu.
 - **Ne lance jamais de jeu.** Cette fonction n'existe pas, volontairement.
 

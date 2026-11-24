@@ -13,7 +13,7 @@ Un même programme sert pour deux types de borne :
 
 ## 1. Installation
 
-1. Décompresse `RacecabFrontend-0.6.1.zip` n'importe où (clé USB, bureau…).
+1. Décompresse `RacecabFrontend-0.6.2.zip` n'importe où (clé USB, bureau…).
 2. Double-clique sur **Installer.bat** et réponds aux questions :
    - **Type de borne** : 1 = Racecab, 2 = GunCab ;
    - **Dossier du programme** (par défaut `C:\RacecabFrontend`) ;
@@ -120,7 +120,7 @@ Réglages (Administration > **Système**) :
 
 ## 6. Démonstration (attract mode)
 
-Après 2 minutes sans action, la borne présente les jeux un par un, avec leur vidéo. La moindre action (bouton, volant, tir) arrête aussitôt la démonstration, **sans lancer de jeu**. Réglages : Administration > Profils.
+Après 2 minutes sans action, la borne présente les jeux un par un, avec leur vidéo. La moindre action (bouton, volant, tir) arrête aussitôt la démonstration, **sans lancer de jeu**. Réglages : Administration > Profils. Le son de la démo suit le volume des vidéos (Administration > Affichage > Vidéo > Volume), et la case « Couper le son pendant la démo » la rend silencieuse.
 
 ---
 
