@@ -29,6 +29,18 @@ struct ScanCandidate {
     bool existing = false;     // déjà dans la bibliothèque (même fichier et mêmes arguments, ou même nom)
     std::string existingName;  // nom du jeu déjà présent
     std::string dupOf;         // doublon d'un autre résultat de la liste (meilleur lanceur gardé)
+    // ROM d'émulateur : émulateurs possibles (le conseillé en premier) et choix en cours (-1 = à choisir)
+    struct EmuChoice {
+        std::string label, launchPath, args, workDir, note, watch;
+        RunMode runMode = RunMode::Auto;
+        bool recommended = false;
+        bool custom = false;   // « Custom » : lanceur saisi à la main (champs vides au départ)
+    };
+    std::vector<EmuChoice> emuChoices;
+    int emuChoice = -1;
+    std::string system;        // système de la ROM (« Model 2 »…), pour l'affichage
+    std::string watchProcess;  // processus à surveiller (lanceur qui passe la main au jeu)
+    bool needsSetup = false;   // ne peut pas être ajouté tel quel (ex. profil TeknoParrot sans chemin de jeu)
 };
 
 namespace scanner {

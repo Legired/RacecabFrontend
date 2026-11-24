@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <format>
 
 #include "admin/AdminUI.h"
@@ -21,7 +22,7 @@
 #include "media/YtVideo.h"
 
 namespace {
-constexpr const char* kVersion = "0.6.2";
+constexpr const char* kVersion = "0.7.0";
 
 bool Inside(const SDL_FRect& r, SDL_FPoint p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; }
 
@@ -155,6 +156,8 @@ int App::Run(int argc, char** argv) {
             if (!admin_->IsOpen()) HandleInput(ev);
         if (state_ == State::Wizard) WizardUpdate(nowMs);
         UpdateHolds(nowMs);
+        if (state_ == State::InputTest) UpdateInputTest(nowMs);
+        UpdatePower(nowMs);
         RunScript(nowMs);
         UpdateAttract(nowMs);
 
@@ -185,6 +188,7 @@ int App::Run(int argc, char** argv) {
         frameMsAvg_ = frameMsAvg_ * 0.95f + dt * 1000.0f * 0.05f;
 
         Update(dt);
+        UpdateMusic(dt);
         uint64_t workStart = SDL_GetTicksNS();
         Render();
         float work = (float)((SDL_GetTicksNS() - workStart) / 1e6);
@@ -277,6 +281,7 @@ bool App::Init(int argc, char** argv) {
                                                settings_.maxImageSide);
     text_ = std::make_unique<TextRenderer>(renderer_);
     video_ = std::make_unique<VideoPlayer>(renderer_);
+    ApplySoundSettings();
     crops_.Init(paths_.dataDir / L"cache" / L"videocrop.json");
     scraperCfg_.lbDir = paths_.dataDir / L"cache" / L"launchbox";
     if (!scraperCfg_.Load(paths_.ScraperFile())) scraperCfg_.Save(paths_.ScraperFile());
@@ -373,6 +378,7 @@ void App::ParseTestOptions(int argc, char** argv) {
         if (k == "--screenshot") screenshotPath_ = v;
         if (k == "--record") recordPath_ = v;
         if (k == "--actions") {
+            powerDryRun_ = true;  // un script de test ne doit jamais éteindre l'ordinateur
             size_t s = 0;
             while (s <= v.size()) {
                 size_t e = v.find(',', s);
@@ -459,7 +465,10 @@ void App::RunScript(uint64_t now) {
                                        paths_.MediaDir() / std::to_wstring(g->id), dur);
             }
     }
+    else if (tok == "emuScan") admin_->StartEmuScan();
+    else if (tok.rfind("scanCustom:", 0) == 0) admin_->TestChooseCustom(std::stoi(tok.substr(11)));  // bouton « Chercher les jeux » (Émulateurs et ROMs)
     else if (tok == "lbUpdate") scraper_.UpdateLaunchBox(false);  // index depuis Metadata.zip (téléchargé s'il manque)
+    else if (tok.rfind("complete:", 0) == 0) CompleteGame(std::stoll(tok.substr(9)));  // bouton « Toutes les sources »
     else if (tok == "scrapeMissing") {  // équivalent du bouton « Compléter les médias des jeux incomplets »
         StartBatch(IncompleteGames());
         logx::Info("[test] {}", batchStatus_);
@@ -532,6 +541,7 @@ void App::MaybeScreenshot(uint64_t now) {
 }
 
 void App::Shutdown() {
+    music_.Stop();
     if (blurA_) SDL_DestroyTexture(blurA_);
     if (blurB_) SDL_DestroyTexture(blurB_);
     blurA_ = blurB_ = nullptr;
@@ -578,6 +588,12 @@ void App::HandleEvent(const SDL_Event& e) {
         input_.Clear();
         input_.BlockUntil(SDL_GetTicks() + 300);
     }
+    if (powerCountdownUntil_ && (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || input_.IsUserActivity(e))) {
+        CancelPowerCountdown("entrée du joueur");
+        idleSince_ = SDL_GetTicks();
+        input_.BlockUntil(SDL_GetTicks() + 300);  // l'appui qui annule ne fait rien d'autre
+        return;
+    }
     if (input_.IsUserActivity(e)) {
         idleSince_ = SDL_GetTicks();
         // Démo : la moindre entrée l'arrête immédiatement, et cette entrée n'a pas d'autre effet
@@ -594,6 +610,11 @@ void App::HandleEvent(const SDL_Event& e) {
         admin_->Toggle();
         return;
     }
+    if (state_ == State::InputTest && e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE && !e.key.repeat) {
+        state_ = State::Browse;
+        input_.Clear();
+        return;
+    }
     // Échap au clavier annule toujours l'assistant (le volant peut ne plus rien faire si le mapping est faux).
     if (state_ == State::Wizard && e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE && !e.key.repeat) {
         WizardAbort();
@@ -608,7 +629,8 @@ void App::HandleEvent(const SDL_Event& e) {
     }
     if (GunMode() && HandleGunEvent(e)) return;
     if (state_ == State::Browse || state_ == State::QuitConfirm || state_ == State::Menu ||
-        state_ == State::Wizard || state_ == State::ProfileSelect || state_ == State::LetterSelect || deviceEvent)
+        state_ == State::Wizard || state_ == State::ProfileSelect || state_ == State::LetterSelect ||
+        state_ == State::InputTest || deviceEvent)
         input_.HandleEvent(e);
 }
 
@@ -633,7 +655,10 @@ bool App::HandleGunEvent(const SDL_Event& e) {
             const uint64_t now = SDL_GetTicks();
             if (!active || input_.Blocked(now)) return true;  // garde après le retour d'un jeu
             idleSince_ = now;
-            if (e.button.button == SDL_BUTTON_LEFT) Shoot(pointer_);
+            if (e.button.button == SDL_BUTTON_LEFT) {
+                PlaySound(UiSounds::Select);
+                Shoot(pointer_);
+            }
             else if (e.button.button == SDL_BUTTON_RIGHT) {
                 gunBackDownAt_ = now;
                 gunBackHoldFired_ = false;
@@ -727,8 +752,8 @@ void App::Shoot(SDL_FPoint p) {
             LetterSelectAction(Action::Back);
             return;
         case State::QuitConfirm:
-            if (Inside(quitYesRect_, p)) running_ = false;
-            else state_ = State::Browse;
+            if (Inside(quitYesRect_, p)) HandleAction(Action::Select);
+            else HandleAction(Action::Back);
             return;
         default: return;
     }
@@ -1035,6 +1060,7 @@ void App::UpdateHolds(uint64_t now) {
     if (held && !admin_->IsOpen() && (state_ == State::Browse || state_ == State::Menu)) {
         if (!backHeldSince_) backHeldSince_ = now;
         else if (Elapsed(now, backHeldSince_) >= 5000) {
+            confirm_ = Confirm::Quit;
             state_ = State::QuitConfirm;
             backHeldSince_ = 0;
             gunBackDownAt_ = 0;
@@ -1190,6 +1216,11 @@ void App::ExitAttract() {
 }
 
 void App::HandleInput(const InputEvent& ev) {
+    if (state_ == State::InputTest) {  // le test affiche l'action reçue, sans rien déclencher
+        testLast_ = std::string(ActionLabel(ev.action)) + (ev.hold ? " (appui long)" : "");
+        testLastAt_ = SDL_GetTicks();
+        return;
+    }
     if (ev.hold) {
         // Maintenir Retour : menu de la borne (utile s'il n'y a pas de bouton Menu dédié)
         if (ev.action == Action::Back && state_ == State::Browse) OpenMenu();
@@ -1215,16 +1246,31 @@ void App::OpenMenu() {
     if (ProfilesForMode().size() > 1)
         menu_.push_back({"Profil : " + profileName_ + " (changer)", [this] { OpenProfileSelect(); }});
     menu_.push_back({"Configurer les commandes (assistant)", [this] { StartWizard(); }});
+    menu_.push_back({"Test des commandes", [this] { OpenInputTest(); }});
     menu_.push_back({std::string("Affichage : ") + (theme_.wheel.mode == "strip" ? "bande -> roue" : "roue -> bande"), [this] {
                          theme_.wheel.mode = theme_.wheel.mode == "strip" ? "wheel" : "strip";
                          theme_.Save();
                      }});
     menu_.push_back({"Administration (clavier / souris)", [this] { admin_->Open(); }});
     if (!settings_.kiosk)  // kiosque : quitter seulement par Retour maintenu 5 s ou l'administration
-        menu_.push_back({"Quitter le frontend", [this] { state_ = State::QuitConfirm; }});
+        menu_.push_back({"Quitter le frontend", [this] {
+                             confirm_ = Confirm::Quit;
+                             state_ = State::QuitConfirm;
+                         }});
+    if (settings_.power.menuEntries) {
+        menu_.push_back({"Éteindre la borne", [this] {
+                             confirm_ = Confirm::Shutdown;
+                             state_ = State::QuitConfirm;
+                         }});
+        menu_.push_back({"Redémarrer la borne", [this] {
+                             confirm_ = Confirm::Reboot;
+                             state_ = State::QuitConfirm;
+                         }});
+    }
     menu_.push_back({"Fermer le menu", [] {}});
     menuIndex_ = 0;
     state_ = State::Menu;
+    PlaySound(UiSounds::Menu);
 }
 
 void App::CycleSort() {
@@ -1375,6 +1421,27 @@ void App::WizardUpdate(uint64_t now) {
 }
 
 void App::HandleAction(Action a) {
+    if (state_ == State::InputTest) {  // le test affiche l'action reçue, sans rien déclencher
+        testLast_ = ActionLabel(a);
+        testLastAt_ = SDL_GetTicks();
+        return;
+    }
+    if (state_ == State::Browse || state_ == State::Menu || state_ == State::LetterSelect ||
+        state_ == State::ProfileSelect || state_ == State::QuitConfirm) {
+        switch (a) {
+            case Action::Prev:
+            case Action::Next:
+            case Action::CatPrev:
+            case Action::CatNext: PlaySound(UiSounds::Move); break;
+            case Action::Select:
+            case Action::Favorite: PlaySound(UiSounds::Select); break;
+            case Action::Back: PlaySound(UiSounds::Back); break;
+            case Action::Menu:
+                if (state_ != State::Browse) PlaySound(UiSounds::Back);  // fermeture ; l'ouverture sonne dans OpenMenu
+                break;
+            default: break;
+        }
+    }
     if (state_ == State::Menu) {
         MenuAction(a);
         return;
@@ -1389,8 +1456,12 @@ void App::HandleAction(Action a) {
     }
     if (state_ == State::Wizard) return;  // l'assistant lit les entrées brutes
     if (state_ == State::QuitConfirm) {
-        if (a == Action::Select) running_ = false;
-        else if (a == Action::Back || a == Action::Quit) state_ = State::Browse;
+        if (a == Action::Select) {
+            if (confirm_ == Confirm::Quit) running_ = false;
+            else PowerOff(confirm_ == Confirm::Reboot);
+        } else if (a == Action::Back || a == Action::Quit || a == Action::Menu) {
+            state_ = State::Browse;
+        }
         return;
     }
     if (state_ == State::Launching) {  // Retour : retire l'écran de chargement sans attendre la fenêtre du jeu
@@ -1443,7 +1514,10 @@ void App::HandleAction(Action a) {
             break;
         }
         case Action::Menu: OpenMenu(); break;
-        case Action::Quit: state_ = State::QuitConfirm; break;
+        case Action::Quit:
+            confirm_ = Confirm::Quit;
+            state_ = State::QuitConfirm;
+            break;
         default: break;
     }
 }
@@ -1552,6 +1626,7 @@ bool App::InstallUpdate(std::string& err) {
 
 void App::LeaveLaunchScreen(void* gameWindow, const char* why) {
     state_ = State::InGame;
+    music_.Silence();
     if (video_) video_->Stop();
     HWND me = NativeWindow(window_), game = (HWND)gameWindow;
     if (me) SetWindowPos(me, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -2286,10 +2361,21 @@ void App::DrawOverlay(float W, float H) {
         text_->Draw(body, "Appuyez sur un bouton pour jouer", W / 2, y, theme_.text, Align::Center, 0, pulse);
     }
     if (state_ == State::Wizard) DrawWizard(W, H);
+    if (state_ == State::InputTest) DrawInputTest(W, H);
+    if (powerCountdownUntil_) {
+        const int left = (int)((powerCountdownUntil_ - std::min(powerCountdownUntil_, now) + 999) / 1000);
+        FillRect({0, H * 0.36f, W, H * 0.28f}, {0, 0, 0, 220});
+        text_->Draw(title, std::format("Extinction de la borne dans {} s", left), W / 2, H * 0.40f, theme_.text, Align::Center);
+        text_->Draw(body, powerReason_ + "  ·  appuyez sur un bouton pour annuler", W / 2,
+                    H * 0.40f + theme_.titleSize * H * 1.7f, theme_.textDim, Align::Center);
+    }
 
     if (state_ == State::QuitConfirm) {
         FillRect({0, 0, W, H}, {0, 0, 0, 200});
-        text_->Draw(title, "Quitter le frontend ?", W / 2, H * 0.4f, theme_.text, Align::Center);
+        const char* q = confirm_ == Confirm::Shutdown ? "Éteindre la borne ?"
+                        : confirm_ == Confirm::Reboot ? "Redémarrer la borne ?"
+                                                      : "Quitter le frontend ?";
+        text_->Draw(title, q, W / 2, H * 0.4f, theme_.text, Align::Center);
         if (GunMode()) {
             float bw = W * 0.14f, bh = H * 0.09f, y = H * 0.4f + theme_.titleSize * H * 1.8f;
             quitYesRect_ = {W / 2 - bw - W * 0.02f, y, bw, bh};
@@ -2393,5 +2479,252 @@ void App::DrawGunOverlay(float W, float H) {
         for (const auto& r : ticks) FillRect(r, col);
         shapes::FillRound(renderer_, {px - t - o, py - t - o, 2 * (t + o), 2 * (t + o)}, t + o, dark, 0.9f);
         shapes::FillRound(renderer_, {px - t, py - t, 2 * t, 2 * t}, t, col);
+    }
+}
+
+// ---------------------------------------------------------------- Sons et musique
+
+void App::ApplySoundSettings() {
+    const SoundSettings& s = settings_.sound;
+    sfx_.Init(paths_.SoundsDir());
+    sfx_.SetVolume(s.sfxVolume / 100.0f);
+    const fs::path dir = s.musicDir.empty() ? paths_.MusicDir() : util::U8Path(s.musicDir);
+    music_.SetFolder(dir);
+    music_.SetVolume(s.musicVolume / 100.0f);
+}
+
+void App::UpdateMusic(float dt) {
+    const SoundSettings& s = settings_.sound;
+    const bool menuState = state_ == State::Browse || state_ == State::Menu || state_ == State::LetterSelect ||
+                           state_ == State::ProfileSelect || state_ == State::QuitConfirm || state_ == State::Attract ||
+                           state_ == State::InputTest;
+    // Une vidéo qui a du son prend le relais (sauf réglage contraire) ; la musique revient quand elle s'arrête.
+    const VideoSettings& v = profile_.video;
+    const bool attractMute = state_ == State::Attract && profile_.attract.mute;
+    const bool videoSound = !video_->Path().empty() && !v.mute && !attractMute && v.volume > 0.0f;
+    music_.SetVolume(s.musicVolume / 100.0f);
+    music_.SetWanted(s.music && menuState && (s.musicOverVideo || !videoSound));
+    music_.Update(dt);
+}
+
+// ---------------------------------------------------------------- Extinction de la borne
+
+void App::PowerOff(bool reboot) {
+    logx::Info("{}{}", reboot ? "Redémarrage de la borne demandé" : "Extinction de la borne demandée", powerDryRun_ ? " (test : simulé)" : "");
+    SaveNavState();
+    if (!powerDryRun_) {
+        // shutdown.exe : extinction normale de Windows (les programmes ouverts sont fermés proprement).
+        std::wstring cmd = reboot ? L"shutdown.exe /r /t 0" : L"shutdown.exe /s /t 0";
+        STARTUPINFOW si{sizeof(si)};
+        PROCESS_INFORMATION pi{};
+        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        } else {
+            logx::Error("Extinction impossible (shutdown.exe, erreur {})", GetLastError());
+            Toast("Extinction impossible : voir le journal", true);
+            state_ = State::Browse;
+            return;
+        }
+    }
+    running_ = false;  // code 0 : la surveillance éventuelle ne relance pas le frontend
+}
+
+static bool ParseHourMinute(const std::string& s, int& h, int& m) {
+    return sscanf_s(s.c_str(), "%d:%d", &h, &m) == 2 && h >= 0 && h < 24 && m >= 0 && m < 60;
+}
+
+std::string App::PowerStatus() const {
+    const PowerSettings& p = settings_.power;
+    std::string out;
+    int h, m;
+    if (ParseHourMinute(p.autoTime, h, m)) out = std::format("tous les jours à {:02}:{:02}", h, m);
+    if (p.idleMinutes > 0)
+        out += (out.empty() ? "" : ", et ") + std::format("après {} min sans joueur", p.idleMinutes);
+    return out.empty() ? "aucune extinction automatique" : "extinction " + out;
+}
+
+void App::CancelPowerCountdown(const char* why) {
+    if (!powerCountdownUntil_) return;
+    powerCountdownUntil_ = 0;
+    logx::Info("Extinction automatique annulée ({})", why);
+    Toast("Extinction annulée");
+}
+
+void App::UpdatePower(uint64_t now) {
+    const PowerSettings& p = settings_.power;
+    const bool idleState = (state_ == State::Browse || state_ == State::Attract) && !admin_->IsOpen();
+    if (powerCountdownUntil_) {
+        if (!idleState) CancelPowerCountdown("borne utilisée");
+        else if (now >= powerCountdownUntil_) {
+            powerCountdownUntil_ = 0;
+            PowerOff(false);
+        }
+        return;
+    }
+    if (!idleState) return;
+    std::string reason;
+    // Heure fixe : proposée une fois par jour, dans la minute qui suit l'heure réglée (borne libre).
+    int h, m;
+    if (ParseHourMinute(p.autoTime, h, m)) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        const int day = st.wYear * 10000 + st.wMonth * 100 + st.wDay;
+        const int nowMin = st.wHour * 60 + st.wMinute, at = h * 60 + m;
+        if (day != autoPowerDoneDay_ && nowMin >= at && nowMin < at + 15) {
+            autoPowerDoneDay_ = day;
+            reason = std::format("Extinction programmée à {:02}:{:02}", h, m);
+        }
+    }
+    if (reason.empty() && p.idleMinutes > 0 && Elapsed(now, idleSince_) >= (uint64_t)p.idleMinutes * 60000)
+        reason = std::format("Aucun joueur depuis {} min", p.idleMinutes);
+    if (reason.empty()) return;
+    powerReason_ = reason;
+    powerCountdownUntil_ = now + 60000;  // une minute pour annuler
+    logx::Info("Extinction automatique dans 60 s : {}", reason);
+    if (state_ == State::Attract) ExitAttract();
+}
+
+// ---------------------------------------------------------------- Test des commandes
+
+void App::OpenInputTest() {
+    testBackSince_ = testRightSince_ = testLastAt_ = 0;
+    testLast_.clear();
+    input_.Clear();
+    state_ = State::InputTest;
+    logx::Info("Test des commandes ouvert");
+}
+
+void App::UpdateInputTest(uint64_t now) {
+    // Sortie : Retour maintenu 2 s, ou clic droit (recharge du pistolet) maintenu 2 s. Échap au clavier aussi.
+    if (input_.ActionHeld(Action::Back)) {
+        if (!testBackSince_) testBackSince_ = now;
+    } else {
+        testBackSince_ = 0;
+    }
+    const bool right = (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_RMASK) != 0;
+    if (right) {
+        if (!testRightSince_) testRightSince_ = now;
+    } else {
+        testRightSince_ = 0;
+    }
+    if ((testBackSince_ && Elapsed(now, testBackSince_) >= 2000) || (testRightSince_ && Elapsed(now, testRightSince_) >= 2000)) {
+        state_ = State::Browse;
+        input_.Clear();
+        input_.BlockUntil(now + 400);
+        gunBackDownAt_ = 0;
+        PlaySound(UiSounds::Back);
+    }
+}
+
+void App::DrawInputTest(float W, float H) {
+    const uint64_t now = SDL_GetTicks();
+    FillRect({0, 0, W, H}, {0, 0, 0, 235});
+    TTF_Font* title = text_->Font(theme_.fontTitle, (int)(theme_.titleSize * H * 0.8f));
+    TTF_Font* body = text_->Font(theme_.fontBody, (int)(theme_.bodySize * H * 0.8f));
+    TTF_Font* small = text_->Font(theme_.fontBody, (int)(theme_.smallSize * H));
+    const float lh = theme_.smallSize * H * 1.6f;
+    text_->Draw(title, "Test des commandes", W / 2, H * 0.04f, theme_.text, Align::Center);
+
+    // Sortie : jauge de maintien
+    uint64_t holdSince = std::max(testBackSince_, testRightSince_);
+    float holdK = holdSince ? std::min(1.0f, Elapsed(now, holdSince) / 2000.0f) : 0.0f;
+    std::string exitHint = GunMode() ? "Maintenir Retour ou le clic droit (recharge) 2 s pour quitter  ·  Échap au clavier"
+                                     : "Maintenir Retour 2 s pour quitter  ·  Échap au clavier";
+    text_->Draw(small, exitHint, W / 2, H * 0.04f + theme_.titleSize * H * 1.1f, theme_.textDim, Align::Center);
+    if (holdK > 0) FillRect({W * 0.3f, H * 0.04f + theme_.titleSize * H * 1.1f + lh * 1.1f, W * 0.4f * holdK, H * 0.008f}, theme_.accent);
+
+    // Colonne gauche : actions du frontend (allumées pendant l'appui)
+    float x = W * 0.05f, y = H * 0.2f;
+    text_->Draw(body, "Actions", x, y, theme_.accent);
+    y += theme_.bodySize * H * 1.6f;
+    for (int i = 0; i < (int)Action::Count; ++i) {
+        const Action a = (Action)i;
+        const bool on = input_.ActionHeld(a);
+        SDL_FRect r{x, y, W * 0.24f, lh * 1.15f};
+        FillRect(r, on ? theme_.accent : theme_.panel, on ? 0.85f : 1.0f);
+        text_->Draw(small, ActionLabel(a), r.x + W * 0.01f, r.y + lh * 0.12f, on ? theme_.text : theme_.textDim);
+        y += lh * 1.35f;
+    }
+    y += lh * 0.5f;
+    const bool fresh = testLastAt_ && Elapsed(now, testLastAt_) < 1500;
+    text_->Draw(small, "Dernière action : " + (testLast_.empty() ? std::string("(aucune)") : testLast_), x, y,
+                fresh ? theme_.text : theme_.textDim);
+    y += lh * 1.2f;
+    const std::string raw = input_.LastRawInput();
+    text_->Draw(small, "Dernière entrée : " + (raw.empty() ? std::string("(aucune)") : raw), x, y, theme_.textDim,
+                Align::Left, (int)(W * 0.3f));
+
+    // Colonne droite : périphériques (axes, boutons, chapeaux) et pistolet / souris
+    x = W * 0.36f;
+    y = H * 0.2f;
+    text_->Draw(body, "Périphériques", x, y, theme_.accent);
+    y += theme_.bodySize * H * 1.6f;
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetJoysticks(&count);
+    if (count == 0) {
+        text_->Draw(small, "Aucun volant, manette ou joystick détecté.", x, y, theme_.textDim);
+        y += lh * 1.5f;
+    }
+    const float colW = W * 0.59f;
+    for (int d = 0; d < count && y < H * 0.82f; ++d) {
+        SDL_Joystick* j = SDL_GetJoystickFromID(ids[d]);
+        if (!j) continue;
+        const char* name = SDL_GetJoystickName(j);
+        text_->Draw(small, name ? name : "Périphérique", x, y, theme_.text);
+        y += lh * 1.1f;
+        // Axes : barre centrée (volant, pédales...)
+        const int axes = std::min(SDL_GetNumJoystickAxes(j), 8);
+        const float bw = (colW - W * 0.01f * 3) / 4, bh = lh * 0.55f;
+        for (int a = 0; a < axes; ++a) {
+            const float v = SDL_GetJoystickAxis(j, a) / 32767.0f;
+            SDL_FRect r{x + (a % 4) * (bw + W * 0.01f), y + (a / 4) * (bh + lh * 0.25f), bw, bh};
+            FillRect(r, theme_.panel);
+            const float c = r.x + r.w / 2, len = std::clamp(v, -1.0f, 1.0f) * r.w / 2;
+            FillRect({std::min(c, c + len), r.y, std::abs(len), r.h}, theme_.accent, 0.9f);
+            FillRect({c - 1, r.y, 2, r.h}, theme_.textDim);
+        }
+        if (axes) y += ((axes + 3) / 4) * (bh + lh * 0.25f) + lh * 0.2f;
+        // Boutons : cases numérotées, allumées à l'appui
+        const int buttons = std::min(SDL_GetNumJoystickButtons(j), 48);
+        const float cell = std::min(lh * 1.1f, colW / 16.0f);
+        for (int b = 0; b < buttons; ++b) {
+            const bool on = SDL_GetJoystickButton(j, b);
+            SDL_FRect r{x + (b % 16) * cell, y + (b / 16) * cell, cell * 0.88f, cell * 0.88f};
+            FillRect(r, on ? theme_.accent : theme_.panel, on ? 0.95f : 1.0f);
+            text_->Draw(small, std::to_string(b + 1), r.x + r.w / 2, r.y + r.h * 0.1f, on ? theme_.text : theme_.textDim,
+                        Align::Center);
+        }
+        if (buttons) y += ((buttons + 15) / 16) * cell + lh * 0.2f;
+        const int hats = std::min(SDL_GetNumJoystickHats(j), 4);
+        for (int h = 0; h < hats; ++h) {
+            const Uint8 v = SDL_GetJoystickHat(j, h);
+            std::string dir;
+            if (v & SDL_HAT_UP) dir += "haut ";
+            if (v & SDL_HAT_DOWN) dir += "bas ";
+            if (v & SDL_HAT_LEFT) dir += "gauche ";
+            if (v & SDL_HAT_RIGHT) dir += "droite ";
+            text_->Draw(small, std::format("Croix {} : {}", h + 1, dir.empty() ? "centre" : dir), x, y, theme_.textDim);
+            y += lh;
+        }
+        y += lh * 0.6f;
+    }
+    SDL_free(ids);
+
+    // Pistolet / souris : position visée et boutons
+    float mx = 0, my = 0;
+    const SDL_MouseButtonFlags mb = SDL_GetMouseState(&mx, &my);
+    float rx = mx, ry = my;
+    SDL_RenderCoordinatesFromWindow(renderer_, mx, my, &rx, &ry);
+    y = std::max(y, H * 0.84f);
+    text_->Draw(small,
+                std::format("Pistolet / souris : visée {:.0f} % x {:.0f} %   gâchette {}   recharge (droit) {}   milieu {}",
+                            std::clamp(rx / W, 0.0f, 1.0f) * 100, std::clamp(ry / H, 0.0f, 1.0f) * 100,
+                            (mb & SDL_BUTTON_LMASK) ? "APPUYÉE" : "-", (mb & SDL_BUTTON_RMASK) ? "APPUYÉ" : "-",
+                            (mb & SDL_BUTTON_MMASK) ? "APPUYÉ" : "-"),
+                x, y, theme_.textDim);
+    if (!GunMode() && rx >= 0 && ry >= 0 && rx < W && ry < H) {  // en GunCab, le viseur est déjà dessiné
+        FillRect({rx - 12, ry - 1, 24, 2}, theme_.accent);
+        FillRect({rx - 1, ry - 12, 2, 24}, theme_.accent);
     }
 }

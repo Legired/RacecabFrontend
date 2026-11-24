@@ -13,6 +13,7 @@
 //   Sans identifiants : texte « Erreur de login : Vérifier vos identifiants développeur ! » (vérifié).
 #include <windows.h>
 
+#include <algorithm>
 #include <ctime>
 #include <format>
 #include <fstream>
@@ -286,9 +287,16 @@ std::string SsMedia(const json& medias, std::initializer_list<const char*> types
 }
 }  // namespace
 
+// Nom comparable : lettres et chiffres seulement, sans « The » initial (« The Walking Dead » = « Walking Dead »).
+static std::string SsComparable(const std::string& name) {
+    std::string n = Scraper::Normalize(name);
+    return n.rfind("the", 0) == 0 && n.size() > 6 && util::ToLower(name).rfind("the ", 0) == 0 ? n.substr(3) : n;
+}
+
 bool SsSearch(const ScraperConfig& c, const std::string& q, std::vector<ScrapeCandidate>& out, std::string& err) {
     // Comme RetroBat : recherche limitée aux systèmes TeknoParrot (269) et Arcade (75) pour ne pas tomber
-    // sur la version console d'un jeu. Sans résultat, recherche libre, mais jamais d'association automatique.
+    // sur la version console d'un jeu. ScreenScraper renvoie parfois d'autres systèmes malgré le filtre
+    // (ex. « non Jeu », « Taito Classics ») : seul un jeu d'un système demandé peut être associé automatiquement.
     std::vector<std::string> systems;
     for (size_t a = 0; a <= c.ssSystems.size();) {
         size_t b = c.ssSystems.find(',', a);
@@ -297,9 +305,10 @@ bool SsSearch(const ScraperConfig& c, const std::string& q, std::vector<ScrapeCa
         if (!s.empty()) systems.push_back(s);
         a = b + 1;
     }
-    auto run = [&](const std::string& systemId, bool autoOk) {
+    const std::string want = SsComparable(q);
+    auto run = [&](const std::string& query, const std::string& systemId) {
         json j;
-        std::string params = "recherche=" + UrlEncode(q) + (systemId.empty() ? "" : "&systemeid=" + UrlEncode(systemId));
+        std::string params = "recherche=" + UrlEncode(query) + (systemId.empty() ? "" : "&systemeid=" + UrlEncode(systemId));
         if (!SsCall(c, "jeuRecherche.php", params, j, err)) return false;
         for (const auto& g : j["response"].value("jeux", json::array())) {
             ScrapeCandidate cand = SsCandidate(g);
@@ -307,15 +316,39 @@ bool SsSearch(const ScraperConfig& c, const std::string& q, std::vector<ScrapeCa
             bool dup = false;
             for (const auto& o : out) dup |= o.id == cand.id;
             if (dup) continue;
-            cand.autoOk = autoOk;
-            if (!autoOk) cand.note = "hors systèmes arcade : à vérifier";
+            const std::string sys = g.contains("systeme") ? Str(g["systeme"], "id") : "";
+            if (sys == "168") continue;  // système « non Jeu » de ScreenScraper (fiches de rangement)
+            // Plusieurs noms par jeu (ex. « Initial D Arcade Stage 7 AA X » en région ss, « Initial D : Arcade
+            // Stage 7 Double Ace Cross » en mondial) : nom identique si l'un d'eux correspond.
+            for (const auto& n : g.value("noms", json::array()))
+                if (!cand.exact && SsComparable(Str(n, "text")) == want) {
+                    cand.exact = true;
+                    cand.name = Str(n, "text");
+                }
+            cand.autoOk = systems.empty() || std::find(systems.begin(), systems.end(), sys) != systems.end();
+            if (!cand.autoOk) cand.note = "hors systèmes arcade : à vérifier";
             out.push_back(cand);
         }
         return true;
     };
-    for (const std::string& s : systems)
-        if (!run(s, true)) return false;
-    if (out.empty()) return run("", systems.empty());
+    // La recherche de ScreenScraper ne trouve rien si un mot diffère (« AAX » au lieu de « AA X », « GTI Club 3 »
+    // nommé « GTI Club 3 - Supermini Festa! ») : sans résultat, on retire le dernier mot (deux mots au moins).
+    std::vector<std::string> words;
+    for (size_t a = 0; a < q.size();) {
+        size_t b = q.find(' ', a);
+        if (b == std::string::npos) b = q.size();
+        if (b > a) words.push_back(q.substr(a, b - a));
+        a = b + 1;
+    }
+    if (words.empty()) return run(q, "");
+    for (size_t n = words.size();; --n) {
+        std::string query;
+        for (size_t i = 0; i < n; ++i) query += (i ? " " : "") + words[i];
+        for (const std::string& s : systems)
+            if (!run(query, s)) return false;
+        if (out.empty() && !run(query, "")) return false;  // recherche libre : hors systèmes demandés, à confirmer
+        if (!out.empty() || n <= 2) break;
+    }
     return true;
 }
 

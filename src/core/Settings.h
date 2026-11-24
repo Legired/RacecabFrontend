@@ -28,6 +28,23 @@ struct GunSettings {
     int mosaicCols = 4, mosaicRows = 3;
 };
 
+// Sons : bruitages de l'interface et musique de fond du menu.
+struct SoundSettings {
+    bool sfx = true;               // sons de navigation (défilement, validation, retour, menu)
+    int sfxVolume = 60;            // %
+    bool music = true;             // musique de fond (fichiers de <données>/music, ou du dossier choisi)
+    int musicVolume = 45;          // %
+    bool musicOverVideo = false;   // false : la musique se tait pendant les vidéos (qui ont leur propre son)
+    std::string musicDir;          // vide = <données>/music
+};
+
+// Extinction de la borne.
+struct PowerSettings {
+    bool menuEntries = true;       // « Éteindre » / « Redémarrer la borne » dans le menu de la borne
+    std::string autoTime;          // extinction automatique à cette heure ("23:30") ; vide = jamais
+    int idleMinutes = 0;           // extinction après X minutes sans joueur ; 0 = jamais
+};
+
 // Paramètres globaux : <données>/config/settings.json
 struct Settings {
     // Type de borne : "racecab" (volant, boutons) ou "guncab" (pistolet). Choisi à l'installation ;
@@ -39,6 +56,10 @@ struct Settings {
     std::string updateRepo = "Legired/RacecabFrontend";  // dépôt GitHub public des mises à jour (releases)
     bool updateAutoCheck = true;   // vérifier au démarrage (une requête, sans rien télécharger)
     GunSettings gun;
+    SoundSettings sound;
+    PowerSettings power;
+    std::string emulatorsDir;      // ajout automatique : dossier où sont les émulateurs (ex. H:\Emulateurs)
+    std::string romsDir;           // ajout automatique : dossier des ROMs
     std::string theme = "default";
     bool fullscreen = true;
     int windowW = 1280;
@@ -84,6 +105,8 @@ struct Paths {
     fs::path DbFile() const { return dataDir / L"db" / L"library.sqlite"; }
     fs::path ThemesDir() const { return dataDir / L"themes"; }
     fs::path MediaDir() const { return dataDir / L"media"; }
+    fs::path MusicDir() const { return dataDir / L"music"; }
+    fs::path SoundsDir() const { return dataDir / L"sounds"; }
     fs::path LogsDir() const { return dataDir / L"logs"; }
     fs::path BackupsDir() const { return dataDir / L"backups"; }
     fs::path RestorePending() const { return dataDir / L"restore-pending.zip"; }

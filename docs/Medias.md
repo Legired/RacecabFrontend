@@ -76,6 +76,11 @@ La base LaunchBox donne pour environ 82 000 jeux (toutes plateformes) un lien ve
 ### Filtre de systèmes ScreenScraper (comme RetroBat)
 RetroBat ne cherche pas un jeu par son seul titre : il précise le système. Le frontend fait de même : les recherches ScreenScraper sont limitées aux systèmes **269 (TeknoParrot)** et **75 (Arcade)**, réglables dans *ScreenScraper : systèmes recherchés*. Cela évite d'associer la version console d'un jeu (ex. *Rambo* sur Master System). Sans résultat dans ces systèmes, les autres sont proposés, mais **jamais associés automatiquement**.
 
+Correspondance des noms (vérifiée avec de vrais identifiants) :
+- ScreenScraper donne plusieurs noms par jeu : le nom est jugé identique si **l'un d'eux** correspond (*Initial D Arcade Stage 7 AAX* = « Initial D Arcade Stage 7 AA X »). Un « The » initial est ignoré (*The Walking Dead* = « Walking Dead »).
+- Sa recherche ne trouve rien si un mot diffère : le frontend réessaie alors **sans le dernier mot**, jusqu'à deux mots. Ce qui est trouvé ainsi n'est associé automatiquement que si le nom est identique, sinon c'est proposé (ex. *GTI Club 3* → « GTI Club 3 - Supermini Festa! »).
+- ScreenScraper renvoie parfois d'autres systèmes malgré le filtre : seul un jeu d'un système demandé est associé automatiquement, et les fiches « non Jeu » sont écartées.
+
 ### Fonctionnement
 - **Rien ne se fait pendant la navigation** : les recherches et téléchargements ne partent qu'à l'ajout d'un jeu (option, désactivée par défaut) ou sur demande.
 - Une seule requête à la fois, dans un thread de travail : l'interface n'est jamais bloquée, et la limite de 1 requête simultanée des comptes gratuits est respectée.
@@ -94,7 +99,9 @@ RetroBat ne cherche pas un jeu par son seul titre : il précise le système. Le 
 | ScreenScraper réel sans identifiants développeur | message « Erreur de login : Vérifier vos identifiants développeur ! » |
 | Parcours complet avec un serveur de simulation local (`tools/mock_media_server.py`), formats repris du client officiel SteamGridDB et du code de Skyscraper | recherche, choix, logo, fond, capture, vidéo et métadonnées OK |
 | Série sur tes 10 jeux (avec simulation) | 2 correspondances exactes téléchargées, 5 à confirmer, 3 sans résultat |
-| **Appel réel authentifié** ScreenScraper / SteamGridDB | **non testé** : il faut tes identifiants. À faire en premier quand tu les auras |
+| **Appel réel authentifié** ScreenScraper (2026-11-24) | OK : connexion, recherche, fiche détaillée et médias conformes au format attendu |
+| Cascade réelle ScreenScraper sur une copie sans médias | Initial D 7 AAX, Rambo, Mario Kart : logo, fond, capture, vidéo. The Walking Dead : logo et fond (pas de capture ni de vidéo chez ScreenScraper). GTI Club 3 et Hummer Extreme : proposés à confirmer |
+| SteamGridDB réel | non testé |
 | **LaunchBox réel** (2026-11-23) : téléchargement de `Metadata.zip` (110 Mo), index | 7 213 jeux Arcade, 2 401 noms alternatifs, 26 665 images, index construit en 1,2 s |
 | **LaunchBox réel : série sur tes 10 jeux** (copie des données) | **9 associations automatiques** en 4 s, 1 à confirmer (GTI Club 3, absent de LaunchBox : 4 « GTI Club » proposés). Logos obtenus pour 8 jeux ; Initial D 6 AA n'a pas de logo chez LaunchBox (fond seulement). Fonds pour 5 jeux, captures pour 6 |
 | LaunchBox avec la simulation : zip, nom alternatif, plateforme écartée, entités XML, mise à jour ratée | OK (`media_tests.exe`) |

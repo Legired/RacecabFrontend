@@ -14,6 +14,7 @@
 #include "core/Settings.h"
 #include "library/Library.h"
 #include "library/Scanner.h"
+#include "library/Emulators.h"
 #include "core/Updater.h"
 #include "profiles/Profile.h"
 #include "core/Log.h"
@@ -295,6 +296,60 @@ int main() {
         Write(root / L"vol" / L"vide.json", "{}");
         Profile d;
         CHECK(d.Load(root / L"vol" / L"vide.json") && d.video.volume == 0.8f);  // valeurs par défaut non converties
+    }
+
+    std::printf("- Émulateurs et ROMs : détection, système de chaque ROM, émulateur conseillé, TeknoParrot\n");
+    {
+        const fs::path e = root / L"emu", r = root / L"roms";
+        Write(e / L"sm2-emu" / L"build" / L"bin" / L"sm2-emu.exe", "MZ");
+        Write(e / L"sm2-emu" / L"indy500.zip", "PK");              // ROM rangée avec l'émulateur
+        Write(e / L"sm2-emu" / L"Indy-500_Arcade_EN.zip", "PK");   // archive quelconque : ignorée
+        Write(e / L"Supermodel" / L"Supermodel.exe", "MZ");
+        Write(e / L"Supermodel" / L"Config" / L"Games.xml",
+              "<games>\n  <game name=\"srally2x\">\n    <identity>\n      <title>Sega Rally 2 DX</title>\n</identity></game></games>");
+        Write(e / L"Teknoparrot" / L"TeknoParrotUi.exe", "MZ");
+        Write(e / L"Teknoparrot" / L"UserProfiles" / L"Ok.xml",
+              "<GameProfile><GamePath>" + util::PathU8(e / L"jeu.exe") + "</GamePath><GameNameInternal>Jeu OK</GameNameInternal></GameProfile>");
+        Write(e / L"jeu.exe", "MZ");
+        Write(e / L"Teknoparrot" / L"UserProfiles" / L"Vide.xml", "<GameProfile><GamePath></GamePath></GameProfile>");
+        Write(e / L"Divers" / L"emulator.exe", "MZ");  // nom générique sans EMULATOR.INI : pas le Model 2 Emulator
+        Write(r / L"daytona.zip", "PK");
+        Write(r / L"srally2x.zip", "PK");
+        Write(r / L"model3" / L"inconnu3.zip", "PK");
+        Write(r / L"divers.zip", "PK");
+        Write(r / L"naomi.zip", "PK");  // BIOS : jamais un jeu
+        std::atomic<bool> stop{false};
+        auto emus = emu::Detect(e, stop);
+        CHECK(emus.size() == 3);
+        std::vector<ScanCandidate> tp;
+        for (auto& f : emus)
+            if (f.def->id == "teknoparrot") tp = emu::ScanTeknoParrot(f);
+        CHECK(tp.size() == 2);
+        for (auto& c : tp) {
+            if (c.rawName == "Ok") CHECK(c.name == "Jeu OK" && !c.needsSetup && c.args == "--profile=Ok.xml");
+            else CHECK(c.needsSetup);
+        }
+        auto roms = emu::ScanRoms(r, e, emus, stop, nullptr);
+        auto find = [&](const std::string& raw) -> ScanCandidate* {
+            for (auto& c : roms)
+                if (c.rawName == raw) return &c;
+            return nullptr;
+        };
+        CHECK(roms.size() == 5);  // daytona, srally2x, inconnu3, divers, indy500 (pas naomi ni Indy-500_Arcade_EN)
+        if (auto* c = find("daytona"))
+            CHECK(c->name == "Daytona USA" && c->emuChoice == 0 && c->launchPath.find("sm2-emu.exe") != std::string::npos &&
+                  c->args.find("--game daytona \"") != std::string::npos);
+        else CHECK(false);
+        if (auto* c = find("srally2x")) CHECK(c->name == "Sega Rally 2 DX" && c->launchPath.find("Supermodel.exe") != std::string::npos &&
+                                              c->args.find("srally2x.zip\" -fullscreen") != std::string::npos);
+        else CHECK(false);
+        if (auto* c = find("inconnu3")) CHECK(c->system == "Sega Model 3" && c->emuChoice == 0);
+        else CHECK(false);
+        if (auto* c = find("divers")) CHECK(c->emuChoice == -1 && c->emuChoices.size() == 2);  // système inconnu : au choix, rien d'office
+        else CHECK(false);
+        CHECK(find("indy500") != nullptr && find("indy500")->name == "Indy 500");
+        for (auto& c : roms) std::printf("    %-22s %-16s %s %s\n", c.name.c_str(), c.system.c_str(),
+                                         c.emuChoice >= 0 ? c.emuChoices[(size_t)c.emuChoice].label.c_str() : "-", c.args.c_str());
     }
 
     logx::Shutdown();

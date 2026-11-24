@@ -58,25 +58,26 @@ bool Settings::Load(const fs::path& file) {
     json j;
     if (!ReadJson(file, j)) return false;
     Get(j, "theme", theme);
-    Get(j, "fullscreen", fullscreen);
-    Get(j, "windowW", windowW);
-    Get(j, "windowH", windowH);
-    Get(j, "vsync", vsync);
-    Get(j, "hideCursor", hideCursor);
-    Get(j, "minimizeDuringGame", minimizeDuringGame);
-    Get(j, "launchScreenMaxSec", launchScreenMaxSec);
-    launchScreenMaxSec = std::clamp(launchScreenMaxSec, 5, 300);
-    Get(j, "textureCacheMB", textureCacheMB);
-    Get(j, "maxImageSide", maxImageSide);
-    Get(j, "profile", profile);
-    Get(j, "askProfileAtStartup", askProfileAtStartup);
-    Get(j, "cabMode", cabMode);
-    if (cabMode != "guncab") cabMode = "racecab";
-    Get(j, "kiosk", kiosk);
-    Get(j, "updateRepo", updateRepo);
-    Get(j, "updateAutoCheck", updateAutoCheck);
-    Get(j, "autoBackup", autoBackup);
-    Get(j, "backupKeep", backupKeep);
+    Get(j, "emulatorsDir", emulatorsDir);
+    Get(j, "romsDir", romsDir);
+    if (j.contains("sound")) {
+        const json& s = j["sound"];
+        Get(s, "sfx", sound.sfx);
+        Get(s, "sfxVolume", sound.sfxVolume);
+        Get(s, "music", sound.music);
+        Get(s, "musicVolume", sound.musicVolume);
+        Get(s, "musicOverVideo", sound.musicOverVideo);
+        Get(s, "musicDir", sound.musicDir);
+        sound.sfxVolume = std::clamp(sound.sfxVolume, 0, 100);
+        sound.musicVolume = std::clamp(sound.musicVolume, 0, 100);
+    }
+    if (j.contains("power")) {
+        const json& p = j["power"];
+        Get(p, "menuEntries", power.menuEntries);
+        Get(p, "autoTime", power.autoTime);
+        Get(p, "idleMinutes", power.idleMinutes);
+        power.idleMinutes = std::clamp(power.idleMinutes, 0, 24 * 60);
+    }
     if (j.contains("gun")) {
         const json& g = j["gun"];
         Get(g, "crosshair", gun.crosshair);
@@ -110,23 +111,16 @@ bool Settings::Load(const fs::path& file) {
 
 bool Settings::Save(const fs::path& file) const {
     json j = {{"theme", theme},
-              {"fullscreen", fullscreen},
-              {"windowW", windowW},
-              {"windowH", windowH},
-              {"vsync", vsync},
-              {"hideCursor", hideCursor},
-              {"minimizeDuringGame", minimizeDuringGame},
-              {"launchScreenMaxSec", launchScreenMaxSec},
-              {"textureCacheMB", textureCacheMB},
-              {"maxImageSide", maxImageSide},
-              {"profile", profile},
-              {"askProfileAtStartup", askProfileAtStartup},
-              {"cabMode", cabMode},
-              {"kiosk", kiosk},
-              {"updateRepo", updateRepo},
-              {"updateAutoCheck", updateAutoCheck},
-              {"autoBackup", autoBackup},
-              {"backupKeep", backupKeep},
+              {"emulatorsDir", emulatorsDir},
+              {"romsDir", romsDir},
+              {"sound",
+               {{"sfx", sound.sfx},
+                {"sfxVolume", sound.sfxVolume},
+                {"music", sound.music},
+                {"musicVolume", sound.musicVolume},
+                {"musicOverVideo", sound.musicOverVideo},
+                {"musicDir", sound.musicDir}}},
+              {"power", {{"menuEntries", power.menuEntries}, {"autoTime", power.autoTime}, {"idleMinutes", power.idleMinutes}}},
               {"gun",
                {{"crosshair", gun.crosshair},
                 {"crosshairColor", gun.crosshairColor},
@@ -188,6 +182,6 @@ Paths Paths::Resolve(int argc, char** argv) {
 void Paths::EnsureDirs() const {
     std::error_code ec;
     for (const fs::path& d : {ConfigDir(), ProfilesDir(), ConfigDir() / L"input", DbFile().parent_path(), ThemesDir(),
-                              MediaDir(), LogsDir()})
+                              MediaDir(), LogsDir(), MusicDir()})
         fs::create_directories(d, ec);
 }

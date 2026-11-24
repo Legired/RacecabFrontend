@@ -251,7 +251,9 @@ std::string Alias(const std::string& name) {
         {"srtv", "Sega Race TV"},                     {"abc", "After Burner Climax"},
         {"tc4", "Time Crisis 4"},                     {"tc5", "Time Crisis 5"},
         {"wmmt5", "Wangan Midnight Maximum Tune 5"},  {"wmmt6", "Wangan Midnight Maximum Tune 6"},
-        {"cruisnblast", "Cruis'n Blast"},             {"hummer", "Hummer Extreme"},
+        {"cruisnblast", "Cruis'n Blast"},             {"crusnexo", "Cruis'n Exotica"},
+        {"crusnusa", "Cruis'n USA"},                  {"crusnwld", "Cruis'n World"},
+        {"bbhworld", "Big Buck Hunter World"},             {"hummer", "Hummer Extreme"},
         {"daytona3", "Daytona Championship USA"},     {"sr3", "Sega Rally 3"},
         {"segarally3", "Sega Rally 3"},               {"r-tuned", "R-Tuned: Ultimate Street Racing"},
     };

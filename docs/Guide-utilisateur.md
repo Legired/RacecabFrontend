@@ -37,6 +37,12 @@ Tout se fait dans l'**administration** : touche **F1** au clavier, ou menu de la
    - **Scanner un dossier** : choisis le dossier qui contient tes jeux (par exemple `H:\LinuxLoader`). Le frontend trouve les jeux (`.exe`, `.bat`, jeux LinuxLoader) et les reconnaît avec la base LaunchBox (vrai nom, année, éditeur). Il propose une catégorie selon le genre : course vers la Racecab, tir vers la GunCab. La colonne *Borne* indique où chaque jeu apparaîtra.
    - Les jeux **déjà dans le frontend** sont signalés et ne peuvent pas être cochés. Les **doublons dans la liste** (le même jeu trouvé deux fois) sont signalés aussi : le meilleur lanceur reste coché.
    - Coche les jeux voulus, ajuste leur nom ou leur catégorie (un par un, ou *Appliquer aux jeux cochés*), puis clique sur *Ajouter*. Les logos et images sont ensuite récupérés automatiquement.
+   - **Émulateurs et ROMs** : indique le dossier de tes émulateurs (un dossier parent suffit, par exemple `H:\`) et celui de tes ROMs, puis *Chercher les jeux*.
+     - Émulateurs reconnus : sm2-emu, Model 2 Emulator, Supermodel, Flycast, Demul, MAME et TeknoParrot. Si plusieurs versions d'un même émulateur sont trouvées, la plus récente est proposée en premier.
+     - Chaque ROM (`daytona.zip`, `scud.zip`…) est nommée (« Daytona USA », « Scud Race ») et reçoit l'émulateur conseillé pour son système. La colonne *Lanceur* est une liste : tu peux choisir un autre émulateur. Une ROM de système inconnu reste décochée tant que tu n'as pas choisi.
+     - Le système se devine par le nom de la ROM, ou par le dossier : range-les dans `model2`, `model3`, `naomi`, `atomiswave`… pour aider.
+     - **Custom** : en bas de la liste *Lanceur* de chaque jeu trouvé (émulateur, .bat, .exe, LinuxLoader…). Les champs se vident : tu indiques toi-même le programme (bouton *...*), les arguments et le dossier de travail. Pratique pour un launcher maison, par exemple `IDSeatLauncher.exe` avec l'argument `"H:\windowsloader\id-seat-launcher\id4.ini"` pour choisir le siège avant Initial D 4. Le jeu ne peut être coché qu'une fois le programme rempli.
+     - TeknoParrot : chaque jeu configuré dans TeknoParrot est proposé, lancé par `TeknoParrotUi.exe --profile=…`. Un profil sans chemin de jeu est signalé, à régler d'abord dans TeknoParrot.
    On peut aussi importer une liste toute prête (voir `docs\Import.md`).
 2. **Onglet Médias** :
    - *Télécharger / mettre à jour la base LaunchBox* (110 Mo, une seule fois, sans compte) ;
@@ -112,9 +118,23 @@ Réglages (Administration > **Système**) :
 | Tri : Nom / Année / Temps de jeu / Lancements | change l'ordre des jeux |
 | Profil | change de profil, s'il y en a plusieurs pour ce type de borne |
 | Configurer les commandes | assistant (volant, boutons, touches du pistolet) |
+| Test des commandes | affiche en direct le volant, les pédales, chaque bouton et la visée du pistolet. Sortie : Retour (ou clic droit du pistolet) maintenu 2 s, ou Échap |
 | Affichage : roue / bande | change la présentation des logos |
 | Administration | réglages complets (clavier / souris) |
 | Quitter le frontend | absent en mode kiosque |
+| Éteindre la borne / Redémarrer la borne | avec confirmation ; éteint l'ordinateur proprement. Se retire dans Administration > Système > *Extinction de la borne* |
+
+### Extinction automatique
+Administration > Système > *Extinction de la borne* :
+- **à heure fixe** (ex. `23:30`), une fois par jour ;
+- **après X minutes sans joueur**.
+
+La borne doit être libre (menu ou démonstration). Un compte à rebours d'une minute s'affiche en grand : n'importe quel bouton, ou un tir, l'annule.
+
+### Sons et musique
+Administration > Affichage > *Sons* :
+- **Sons de navigation** : petits bruitages au défilement, à la validation, au retour et à l'ouverture du menu. Pour mettre les tiens : `move.wav`, `select.wav`, `back.wav`, `menu.wav` dans le dossier `sounds` des données.
+- **Musique de fond** : dépose des mp3 (ou ogg, flac, wav, m4a, opus) dans le dossier `music` des données (bouton *Ouvrir*), puis *Relire le dossier*. Lecture aléatoire, en fondu. La musique se tait pendant les vidéos qui ont du son (sauf si tu coches *Garder la musique pendant les vidéos*) et toujours pendant les jeux.
 
 ---
 

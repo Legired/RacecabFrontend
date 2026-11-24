@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "audio/Sound.h"
 #include "core/Settings.h"
 #include "core/Updater.h"
 #include "input/Input.h"
@@ -29,7 +30,7 @@ class AdminUI;
 // Boucle principale et machine à états du frontend.
 class App {
 public:
-    enum class State { Browse, Launching, InGame, Returning, QuitConfirm, Menu, Wizard, Attract, ProfileSelect, LetterSelect };
+    enum class State { Browse, Launching, InGame, Returning, QuitConfirm, Menu, Wizard, Attract, ProfileSelect, LetterSelect, InputTest };
 
     App();
     ~App();
@@ -68,6 +69,15 @@ public:
     std::vector<std::string> ProfilesForMode() const;  // profils proposés sur ce type de borne
     void OpenMenu();
     void StartWizard();
+    void OpenInputTest();
+
+    // Sons et extinction
+    void ApplySoundSettings();          // à appeler après un changement des réglages de son
+    MusicPlayer& Music() { return music_; }
+    UiSounds& Sounds() { return sfx_; }
+    void PlaySound(UiSounds::Kind k) { if (settings_.sound.sfx) sfx_.Play(k); }
+    void PowerOff(bool reboot);         // éteint / redémarre l'ordinateur (simulé pendant les tests automatisés)
+    std::string PowerStatus() const;    // prochaine extinction automatique (texte)
 
     // Profils
     Profile& CurrentProfile() { return profile_; }
@@ -110,6 +120,11 @@ private:
     void OpenLetterSelect();
     void LetterSelectAction(Action a);
     void DrawLetterSelect(float W, float H);
+    void DrawInputTest(float W, float H);
+    void UpdateInputTest(uint64_t now);
+    void UpdateMusic(float dt);
+    void UpdatePower(uint64_t now);
+    void CancelPowerCountdown(const char* why);
     bool HandleGunEvent(const SDL_Event& e);
     void Shoot(SDL_FPoint p);
     void UpdateHolds(uint64_t now);
@@ -243,6 +258,21 @@ private:
     std::optional<WheelItem> attractSavedItem_;
     uint64_t attractNextAt_ = 0;
     std::mt19937 rng_{std::random_device{}()};
+
+    // Sons
+    UiSounds sfx_;
+    MusicPlayer music_;
+
+    // Confirmation (quitter le frontend, éteindre ou redémarrer la borne) et extinction automatique
+    enum class Confirm { Quit, Shutdown, Reboot } confirm_ = Confirm::Quit;
+    bool powerDryRun_ = false;          // tests automatisés : extinction seulement journalisée
+    uint64_t powerCountdownUntil_ = 0;  // compte à rebours d'extinction automatique (0 = aucun)
+    std::string powerReason_;
+    int autoPowerDoneDay_ = -1;         // jour (aaaammjj) où l'extinction à heure fixe a déjà été proposée
+
+    // Test des commandes
+    uint64_t testBackSince_ = 0, testRightSince_ = 0, testLastAt_ = 0;
+    std::string testLast_;
 
     // Menu de la borne (navigable au volant / aux boutons)
     struct MenuEntry {

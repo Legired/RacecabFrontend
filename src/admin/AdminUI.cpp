@@ -1,4 +1,4 @@
-#include "admin/AdminUI.h"
+﻿#include "admin/AdminUI.h"
 
 #include <map>
 #include <set>
@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <format>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -20,6 +21,7 @@
 #include "core/ConfigShare.h"
 #include "core/System.h"
 #include "media/YtVideo.h"
+#include "library/Emulators.h"
 #include "media/LaunchBox.h"
 #include "profiles/Profile.h"
 
@@ -332,6 +334,64 @@ void AdminUI::StartScan(const std::string& root) {
             c.rawName = c.name;
             if (std::string a = scanner::Alias(c.name); !a.empty()) c.name = a;
         }
+        Recognize(list, lbDb);
+        std::lock_guard lk(scanM_);
+        scanDone_ = std::move(list);
+        scanReady_ = true;
+        scanBusy_ = false;
+    });
+}
+
+void AdminUI::StartEmuScan() {
+    if (scanBusy_) return;
+    if (scanThread_.joinable()) scanThread_.join();
+    const Settings& s = app_.Config();
+    scanRoot_ = "Émulateurs : " + (s.emulatorsDir.empty() ? std::string("(aucun)") : s.emulatorsDir) +
+                "   ·   ROMs : " + (s.romsDir.empty() ? std::string("(aucun)") : s.romsDir);
+    scanRows_.clear();
+    scanReady_ = false;
+    scanOpen_ = true;
+    scanCancel_ = false;
+    scanBusy_ = true;
+    const fs::path lbDb = app_.ScrapeConfig().lbDir / L"launchbox.db";
+    const fs::path emuDir = util::U8Path(s.emulatorsDir), romDir = util::U8Path(s.romsDir);
+    scanThread_ = std::thread([this, emuDir, romDir, lbDb] {
+        std::vector<ScanCandidate> list;
+        auto progress = [this](const std::string& d) {
+            std::lock_guard lk(scanM_);
+            scanStatus_ = d;
+        };
+        try {
+            progress("recherche des émulateurs...");
+            std::vector<emu::Found> emus;
+            if (!emuDir.empty()) emus = emu::Detect(emuDir, scanCancel_);
+            std::string names;
+            for (const auto& f : emus) names += (names.empty() ? "" : ", ") + f.label;
+            logx::Info("Ajout automatique : émulateurs trouvés : {}", names.empty() ? "aucun" : names);
+            for (const auto& f : emus)
+                if (f.def->id == "teknoparrot") {  // un seul TeknoParrot (le plus récent)
+                    for (auto& c : emu::ScanTeknoParrot(f)) list.push_back(std::move(c));
+                    break;
+                }
+            for (auto& c : emu::ScanRoms(romDir, emuDir, emus, scanCancel_, progress)) list.push_back(std::move(c));
+        } catch (const std::exception& e) {
+            logx::Error("Recherche des émulateurs / ROMs interrompue : {}", e.what());
+        }
+        for (auto& c : list)
+            if (std::string a = scanner::Alias(c.rawName); !a.empty() && c.kind == "teknoparrot") c.name = a;
+        for (const auto& c : list)
+            logx::Info("  trouvé : {} [{}] {}{}", c.name, c.system,
+                       c.emuChoice >= 0 ? c.emuChoices[(size_t)c.emuChoice].label : c.kind == "teknoparrot" ? "TeknoParrot" : "-",
+                       c.note.empty() ? "" : " (" + c.note + ")");
+        Recognize(list, lbDb);
+        std::lock_guard lk(scanM_);
+        scanDone_ = std::move(list);
+        scanReady_ = true;
+        scanBusy_ = false;
+    });
+}
+
+void AdminUI::Recognize(std::vector<ScanCandidate>& list, const fs::path& lbDb) {
         // Reconnaissance par la base LaunchBox locale (lecture seule, sans Internet)
         LaunchBoxDb db;
         std::string err;
@@ -356,11 +416,6 @@ void AdminUI::StartScan(const std::string& root) {
                     break;
                 }
             }
-        std::lock_guard lk(scanM_);
-        scanDone_ = std::move(list);
-        scanReady_ = true;
-        scanBusy_ = false;
-    });
 }
 
 std::string AdminUI::CabsOf(int64_t category) {
@@ -407,6 +462,56 @@ int64_t AdminUI::CabDefaultCategory(const std::string& cab) {
     return best;
 }
 
+// Jeu qui ne peut pas être ajouté tel quel : ROM sans émulateur choisi, profil TeknoParrot incomplet.
+static bool Blocked(const ScanCandidate& c) {
+    const bool custom = c.emuChoice >= 0 && c.emuChoices[(size_t)c.emuChoice].custom;
+    return c.needsSetup || (c.kind == "emulator" && c.emuChoice < 0) || (custom && util::Trim(c.launchPath).empty());
+}
+
+void AdminUI::TestChooseCustom(int row) {
+    if (row < 0 || row >= (int)scanRows_.size() || scanRows_[(size_t)row].c.emuChoices.empty()) return;
+    ScanRow& r = scanRows_[(size_t)row];
+    emu::Choose(r.c, (int)r.c.emuChoices.size() - 1);
+    r.sel = false;
+}
+
+void AdminUI::WindowEmu() {
+    if (!emuOpen_) return;
+    ImGui::SetNextWindowSize(ImVec2(760, 330), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Émulateurs et ROMs", &emuOpen_)) {
+        ImGui::End();
+        return;
+    }
+    Settings& s = app_.Config();
+    ImGui::TextWrapped("Choisis le dossier qui contient tes émulateurs et celui qui contient tes ROMs. Le frontend reconnaît "
+                       "les émulateurs (sm2-emu, Model 2 Emulator, Supermodel, Flycast, Demul, MAME, TeknoParrot), trouve le "
+                       "système de chaque ROM et propose l'émulateur qui convient. Tu peux en choisir un autre dans la liste.");
+    ImGui::Spacing();
+    auto field = [&](const char* label, std::string& v, Field f, const char* id) {
+        ImGui::SetNextItemWidth(460);
+        if (ImGui::InputText(label, &v, 0) ) {}
+        if (ImGui::IsItemDeactivatedAfterEdit()) app_.SaveSettings();
+        ImGui::SameLine();
+        if (ImGui::Button((std::string("Parcourir...##") + id).c_str())) BrowseFolder(f);
+    };
+    field("Dossier des émulateurs", s.emulatorsDir, Field::EmuFolder, "emu");
+    Help("Un dossier parent suffit (ex. H:\\ si tes émulateurs sont dans H:\\sm2-emu, H:\\Teknoparrot…). La recherche "
+         "descend de 4 niveaux et saute les dossiers système et les grosses bibliothèques (Steam, Windows…).");
+    field("Dossier des ROMs", s.romsDir, Field::RomFolder, "rom");
+    Help("Fichiers .zip / .7z / .chd (noms courts comme MAME : daytona.zip, scud.zip). Un sous-dossier nommé model2, "
+         "model3, naomi, atomiswave… indique le système. Les ROMs rangées dans le dossier d'un émulateur sont aussi "
+         "trouvées. Facultatif : sans dossier de ROMs, seuls les jeux TeknoParrot et les ROMs des dossiers d'émulateurs "
+         "sont cherchés.");
+    ImGui::Spacing();
+    ImGui::BeginDisabled(s.emulatorsDir.empty() || scanBusy_);
+    if (ImGui::Button("Chercher les jeux")) {
+        emuOpen_ = false;
+        StartEmuScan();
+    }
+    ImGui::EndDisabled();
+    ImGui::End();
+}
+
 void AdminUI::WindowScan() {
     Library& lib = app_.Lib();
     // Résultats du thread : déjà présents, catégorie proposée selon le genre, cochés si reconnus
@@ -417,7 +522,11 @@ void AdminUI::WindowScan() {
             const int64_t race = CabDefaultCategory("Racecab"), gun = CabDefaultCategory("GunCab");
             // Doublons dans la liste : un seul résultat par jeu (LinuxLoader > .exe > .bat sans pause > .bat avec pause)
             auto rank = [](const ScanCandidate& c) {
-                return c.kind == "linuxloader" ? 4 : c.kind == "exe" ? 3 : c.runMode == RunMode::Normal ? 1 : 2;
+                if (c.needsSetup || (c.kind == "emulator" && c.emuChoice < 0)) return 0;
+                return c.kind == "linuxloader" || c.kind == "teknoparrot" ? 4
+                       : c.kind == "exe" || c.kind == "emulator"       ? 3
+                       : c.runMode == RunMode::Normal                  ? 1
+                                                                       : 2;
             };
             std::map<std::string, size_t> bestOf;  // nom normalisé -> indice du meilleur résultat
             for (size_t i = 0; i < scanDone_.size(); ++i) {
@@ -435,15 +544,36 @@ void AdminUI::WindowScan() {
                 if (best != i) c.dupOf = scanDone_[best].name + " (" + scanDone_[best].kind + ")";
             }
             for (auto& c : scanDone_) {
+                // Liste des lanceurs pour chaque jeu : celui trouvé par le scan, puis « Custom » (à remplir à la main)
+                if (c.emuChoices.empty() && !c.launchPath.empty()) {
+                    ScanCandidate::EmuChoice det;
+                    det.label = c.kind == "linuxloader"   ? "LinuxLoader (trouvé)"
+                                : c.kind == "teknoparrot" ? "TeknoParrot (trouvé)"
+                                : c.kind == "bat"         ? "Fichier .bat (trouvé)"
+                                                          : "Fichier .exe (trouvé)";
+                    det.launchPath = c.launchPath;
+                    det.args = c.args;
+                    det.workDir = c.workDir;
+                    det.runMode = c.runMode;
+                    det.note = c.note;
+                    det.recommended = true;
+                    c.emuChoices.push_back(det);
+                    c.emuChoice = 0;
+                }
+                ScanCandidate::EmuChoice custom;
+                custom.label = "Custom (à remplir)";
+                custom.custom = true;
+                c.emuChoices.push_back(custom);
                 ScanRow r;
                 r.c = std::move(c);
                 std::string lp = util::ToLower(r.c.launchPath), nm = Scraper::Normalize(r.c.name),
                             lbn = Scraper::Normalize(r.c.lbName), raw = Scraper::Normalize(r.c.rawName);
                 // Déjà dans le frontend : même fichier + mêmes arguments, ou un des noms connus (dossier, abréviation,
                 // nom officiel LaunchBox) identique au nom ou au nom alternatif d'un jeu présent
+                auto noThe = [](std::string n) { return n.rfind("the", 0) == 0 && n.size() > 6 ? n.substr(3) : n; };
                 for (const Game& g : lib.Games()) {
-                    std::string gn = Scraper::Normalize(g.name), ga = Scraper::Normalize(g.altName);
-                    auto same = [&](const std::string& n) { return !n.empty() && (n == gn || n == ga); };
+                    std::string gn = noThe(Scraper::Normalize(g.name)), ga = noThe(Scraper::Normalize(g.altName));
+                    auto same = [&](const std::string& n) { return !n.empty() && (noThe(n) == gn || noThe(n) == ga); };
                     if ((util::ToLower(g.launchPath) == lp && g.args == r.c.args) || same(nm) || same(lbn) || same(raw)) {
                         r.c.existing = true;
                         r.c.existingName = g.name;
@@ -453,7 +583,8 @@ void AdminUI::WindowScan() {
                 std::string genre = util::ToLower(r.c.lbGenre);
                 if (genre.find("racing") != std::string::npos || genre.find("driving") != std::string::npos) r.cat = race;
                 else if (genre.find("shoot") != std::string::npos || genre.find("gun") != std::string::npos) r.cat = gun;
-                r.sel = !r.c.existing && r.c.dupOf.empty() && (!r.c.lbName.empty() || r.c.kind == "linuxloader");
+                r.sel = !r.c.existing && r.c.dupOf.empty() && !Blocked(r.c) &&
+                        (!r.c.lbName.empty() || r.c.kind == "linuxloader" || r.c.kind == "emulator" || r.c.kind == "teknoparrot");
                 scanRows_.push_back(std::move(r));
             }
             scanDone_.clear();
@@ -514,7 +645,7 @@ void AdminUI::WindowScan() {
 
     int nSel = 0, nExist = 0, nLb = 0, nDup = 0;
     for (auto& r : scanRows_) {
-        if (r.c.existing) r.sel = false;  // jamais d'ajout en double
+        if (r.c.existing || Blocked(r.c)) r.sel = false;  // jamais d'ajout en double ni de jeu sans lanceur
         nSel += r.sel;
         nExist += r.c.existing;
         nDup += !r.c.existing && !r.c.dupOf.empty();
@@ -523,7 +654,7 @@ void AdminUI::WindowScan() {
     ImGui::Text("%d jeu(x) trouvé(s) : %d reconnu(s) par LaunchBox, %d déjà dans le frontend, %d doublon(s) dans la liste. "
                 "%d coché(s).", (int)scanRows_.size(), nLb, nExist, nDup, nSel);
     if (ImGui::Button("Tout cocher"))
-        for (auto& r : scanRows_) r.sel = !r.c.existing && r.c.dupOf.empty();
+        for (auto& r : scanRows_) r.sel = !r.c.existing && r.c.dupOf.empty() && !Blocked(r.c);
     ImGui::SameLine();
     if (ImGui::Button("Tout décocher"))
         for (auto& r : scanRows_) r.sel = false;
@@ -563,15 +694,13 @@ void AdminUI::WindowScan() {
         ImGui::TableSetupColumn("Lanceur", ImGuiTableColumnFlags_WidthStretch, 2.6f);
         ImGui::TableSetupColumn("Remarque", ImGuiTableColumnFlags_WidthStretch, 1.8f);
         ImGui::TableHeadersRow();
-        ImGuiListClipper clip;
-        clip.Begin((int)scanRows_.size());
-        while (clip.Step())
-            for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
+        {
+            for (int i = 0; i < (int)scanRows_.size(); ++i) {  // lignes de hauteur variable (champs « Custom »)
                 ScanRow& r = scanRows_[(size_t)i];
                 ImGui::PushID(i);
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::BeginDisabled(r.c.existing);
+                ImGui::BeginDisabled(r.c.existing || Blocked(r.c));
                 ImGui::Checkbox("##s", &r.sel);
                 ImGui::EndDisabled();
                 ImGui::TableNextColumn();
@@ -589,6 +718,10 @@ void AdminUI::WindowScan() {
                 } else {
                     ImGui::TextDisabled("non reconnu");
                 }
+                if (!r.c.system.empty()) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("[%s]", r.c.system.c_str());
+                }
                 ImGui::TableNextColumn();
                 ImGui::SetNextItemWidth(-1);
                 catCombo("##c", r.cat);
@@ -596,8 +729,50 @@ void AdminUI::WindowScan() {
                 std::string cab = CabsOf(r.cat);
                 ImGui::TextColored(r.cat ? ImVec4(0.6f, 0.85f, 1.0f, 1.0f) : kRed, "%s", cab.c_str());
                 ImGui::TableNextColumn();
-                std::string shown = r.c.kind == "linuxloader" ? "LinuxLoader : " + r.c.args : r.c.launchPath;
-                ImGui::TextUnformatted(shown.c_str());
+                std::string shown = r.c.kind == "linuxloader"   ? "LinuxLoader : " + r.c.args
+                                    : r.c.kind == "teknoparrot" ? "TeknoParrot : " + r.c.args
+                                                                : r.c.launchPath;
+                if (!r.c.emuChoices.empty()) {
+                    ImGui::SetNextItemWidth(-1);
+                    const char* cur = r.c.emuChoice >= 0 ? r.c.emuChoices[(size_t)r.c.emuChoice].label.c_str() : "Choisir l'émulateur...";
+                    if (ImGui::BeginCombo("##emu", cur)) {
+                        for (int k = 0; k < (int)r.c.emuChoices.size(); ++k) {
+                            const auto& ch = r.c.emuChoices[(size_t)k];
+                            std::string lbl = ch.label + (ch.recommended ? "  (conseillé)" : "");
+                            if (ImGui::Selectable(lbl.c_str(), k == r.c.emuChoice)) {
+                                const bool was = r.c.emuChoice >= 0;
+                                emu::Choose(r.c, k);
+                                if (ch.custom) r.sel = false;  // coché une fois le programme rempli
+                                else if (!was && !r.c.existing) r.sel = true;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (r.c.emuChoice >= 0 && r.c.emuChoices[(size_t)r.c.emuChoice].custom) {
+                        const float bw = ImGui::CalcTextSize("...").x + ImGui::GetStyle().FramePadding.x * 2;
+                        const float w = ImGui::GetContentRegionAvail().x - bw - ImGui::GetStyle().ItemSpacing.x;
+                        const bool wasEmpty = util::Trim(r.c.launchPath).empty();
+                        ImGui::SetNextItemWidth(w);
+                        ImGui::InputTextWithHint("##prog", "Programme à lancer (.exe, .bat)", &r.c.launchPath);
+                        ImGui::SameLine();
+                        if (ImGui::Button("...##p")) {
+                            scanEditRow_ = i;
+                            BrowseFile(Field::ScanProgram, "Programmes (.exe, .bat, .cmd)", "exe;bat;cmd");
+                        }
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::InputTextWithHint("##args", "Arguments (facultatif)", &r.c.args);
+                        ImGui::SetNextItemWidth(w);
+                        ImGui::InputTextWithHint("##wd", "Dossier de travail (vide = celui du programme)", &r.c.workDir);
+                        ImGui::SameLine();
+                        if (ImGui::Button("...##w")) {
+                            scanEditRow_ = i;
+                            BrowseFolder(Field::ScanWorkDir);
+                        }
+                        if (wasEmpty && !util::Trim(r.c.launchPath).empty() && !r.c.existing) r.sel = true;
+                    }
+                } else {
+                    ImGui::TextUnformatted(shown.c_str());
+                }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("%s %s\nDossier : %s", r.c.launchPath.c_str(), r.c.args.c_str(),
                                       r.c.workDir.empty() ? "(celui du lanceur)" : r.c.workDir.c_str());
@@ -609,6 +784,7 @@ void AdminUI::WindowScan() {
                 if (ImGui::IsItemHovered() && !r.c.note.empty()) ImGui::SetTooltip("%s", r.c.note.c_str());
                 ImGui::PopID();
             }
+        }
         ImGui::EndTable();
     }
     ImGui::Checkbox("Récupérer ensuite les logos, images et infos des jeux ajoutés", &scanFetchMedia_);
@@ -630,16 +806,22 @@ void AdminUI::WindowScan() {
                 ++dup;
                 continue;
             }
+            if (size_t p = r.c.args.find("--nvram \""); p != std::string::npos) {  // sm2-emu : dossier des sauvegardes
+                size_t a = p + 9, b = r.c.args.find('"', a);
+                std::error_code ec;
+                if (b != std::string::npos) fs::create_directories(util::U8Path(r.c.args.substr(a, b - a)), ec);
+            }
             Game g;
             g.name = util::Trim(r.c.name);
             g.launchPath = r.c.launchPath;
             g.args = r.c.args;
             g.workDir = r.c.workDir;
             g.runMode = r.c.runMode;
+            g.watchProcess = r.c.watchProcess;
             if (r.cat) g.categories.push_back(r.cat);
             g.year = r.c.lbYear;
             g.publisher = r.c.lbPublisher;
-            g.platform = r.c.lbPlatform;
+            g.platform = !r.c.lbPlatform.empty() ? r.c.lbPlatform : r.c.system;
             g.description = r.c.lbOverview;
             std::string genre = util::ToLower(r.c.lbGenre);
             g.genre = genre.find("racing") != std::string::npos || genre.find("driving") != std::string::npos ? "Course"
@@ -699,6 +881,26 @@ void AdminUI::ApplyPendingDialog() {
             break;
         case Field::ScanFolder:
             StartScan(p);
+            break;
+        case Field::ScanProgram:
+        case Field::ScanWorkDir:
+            if (scanEditRow_ >= 0 && scanEditRow_ < (int)scanRows_.size()) {
+                ScanRow& r = scanRows_[(size_t)scanEditRow_];
+                if (f == Field::ScanWorkDir) r.c.workDir = p;
+                else {
+                    const bool wasEmpty = util::Trim(r.c.launchPath).empty();
+                    r.c.launchPath = p;
+                    if (wasEmpty && !r.c.existing) r.sel = true;
+                }
+            }
+            break;
+        case Field::EmuFolder:
+            app_.Config().emulatorsDir = p;
+            app_.SaveSettings();
+            break;
+        case Field::RomFolder:
+            app_.Config().romsDir = p;
+            app_.SaveSettings();
             break;
         case Field::ShareExport: {
             fs::path out = util::U8Path(p);
@@ -781,6 +983,7 @@ void AdminUI::Render() {
     }
     ImGui::End();
     if (scanOpen_) WindowScan();
+    WindowEmu();
     if (!keep) Close();
 
     ImGui::Render();
@@ -862,6 +1065,8 @@ void AdminUI::TabGames() {
         if (scanBusy_) scanOpen_ = true;
         else BrowseFolder(Field::ScanFolder);
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Émulateurs et ROMs...")) emuOpen_ = true;
     Help("Ajout automatique : choisis un dossier (ex. H:\\LinuxLoader). Les jeux trouvés s'affichent dans une liste : "
          "coche ceux à ajouter et choisis leur catégorie (donc la borne où ils apparaissent).");
     Help("Fichier JSON : voir docs/Import.md. Les doublons (même fichier + mêmes arguments) sont ignorés.");
@@ -1298,6 +1503,29 @@ void AdminUI::TabSystem() {
     Help("Plein écran imposé, curseur masqué, « Quitter » retiré du menu de la borne. Pour quitter : maintenir Retour "
          "5 secondes (puis confirmer), ou ce panneau (F1).");
     if (ImGui::Button("Quitter le frontend")) app_.RequestQuit();
+
+    ImGui::SeparatorText("Extinction de la borne");
+    {
+        PowerSettings& pw = s.power;
+        if (ImGui::Checkbox("« Éteindre » et « Redémarrer la borne » dans le menu de la borne", &pw.menuEntries)) app_.SaveSettings();
+        Help("Entrées du menu de la borne (bouton Menu ou Retour maintenu), avec confirmation. Éteint l'ordinateur "
+             "proprement, comme le menu Démarrer.");
+        ImGui::SetNextItemWidth(120);
+        ImGui::InputTextWithHint("Extinction automatique à (HH:MM)", "23:30", &pw.autoTime);
+        bool savePw = ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetNextItemWidth(250);
+        ImGui::SliderInt("Après X minutes sans joueur", &pw.idleMinutes, 0, 240, pw.idleMinutes ? "%d min" : "jamais",
+                         ImGuiSliderFlags_AlwaysClamp);
+        savePw |= ImGui::IsItemDeactivatedAfterEdit();
+        if (savePw) app_.SaveSettings();
+        int hh, mm;
+        const bool badTime = !pw.autoTime.empty() && !(sscanf_s(pw.autoTime.c_str(), "%d:%d", &hh, &mm) == 2 &&
+                                                        hh >= 0 && hh < 24 && mm >= 0 && mm < 60);
+        if (badTime) ImGui::TextColored(kRed, "Heure non reconnue : écrire par exemple 23:30.");
+        else ImGui::TextDisabled("Actuellement : %s.", app_.PowerStatus().c_str());
+        Help("La borne doit être libre (menu ou démonstration, pas en jeu). Un compte à rebours d'une minute s'affiche : "
+             "n'importe quel bouton (ou un tir) l'annule. L'heure fixe n'est proposée qu'une fois par jour.");
+    }
 
     SectionUpdates();
     SectionShare();
@@ -2037,6 +2265,58 @@ void AdminUI::TabDisplay() {
     if (!app_.Video()->DecoderInfo().empty()) ImGui::TextDisabled("Dernier décodeur : %s", app_.Video()->DecoderInfo().c_str());
     if (!app_.Video()->LastError().empty()) ImGui::TextColored(kRed, "Dernière erreur : %s", app_.Video()->LastError().c_str());
 
+    ImGui::SeparatorText("Sons");
+    {
+        SoundSettings& so = s.sound;
+        bool saveSound = false;
+        saveSound |= ImGui::Checkbox("Sons de navigation", &so.sfx);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(250);
+        if (ImGui::SliderInt("Volume des sons", &so.sfxVolume, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp))
+            app_.Sounds().SetVolume(so.sfxVolume / 100.0f);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            saveSound = true;
+            app_.PlaySound(UiSounds::Select);  // aperçu du niveau choisi
+        }
+        Help("Petits sons au défilement, à la validation, au retour et à l'ouverture du menu. Sons intégrés par défaut ; "
+             "pour les remplacer, mettre move.wav, select.wav, back.wav et menu.wav dans le dossier sounds des données "
+             "(pris en compte au prochain démarrage).");
+        saveSound |= ImGui::Checkbox("Musique de fond", &so.music);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(250);
+        ImGui::SliderInt("Volume de la musique", &so.musicVolume, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp);
+        saveSound |= ImGui::IsItemDeactivatedAfterEdit();
+        saveSound |= ImGui::Checkbox("Garder la musique pendant les vidéos", &so.musicOverVideo);
+        Help("Décoché (conseillé) : la musique se tait quand une vidéo avec du son démarre, et revient en fondu quand elle "
+             "s'arrête. Elle se coupe toujours pendant les jeux.");
+        ImGui::SetNextItemWidth(500);
+        ImGui::InputTextWithHint("Dossier de musique", util::PathU8(app_.Dirs().MusicDir()).c_str(), &so.musicDir);
+        bool reload = ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        if (ImGui::Button("Ouvrir##music")) {
+            fs::path d = so.musicDir.empty() ? app_.Dirs().MusicDir() : util::U8Path(so.musicDir);
+            std::error_code ec;
+            fs::create_directories(d, ec);
+            ShellExecuteW(nullptr, L"open", d.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        ImGui::SameLine();
+        reload |= ImGui::Button("Relire le dossier");
+        Help("Fichiers mp3, ogg, flac, wav, m4a ou opus, joués dans un ordre aléatoire. Vide = dossier music des données.");
+        const size_t n = app_.Music().TrackCount();
+        const std::string cur = app_.Music().Current();
+        if (n == 0) ImGui::TextDisabled("Aucun morceau trouvé : dépose des fichiers dans le dossier puis « Relire le dossier ».");
+        else ImGui::TextDisabled("%zu morceau(x)%s%s", n, cur.empty() ? "" : "  ·  en cours : ", cur.c_str());
+        if (n > 1) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Morceau suivant")) app_.Music().Next();
+        }
+        if (reload) {
+            app_.ApplySoundSettings();
+            saveSound = true;
+        }
+        if (saveSound) app_.SaveSettings();
+    }
+
     ImGui::SeparatorText("Fenêtre");
     bool apply = false;
     apply |= ImGui::Checkbox("Plein écran", &s.fullscreen);
@@ -2070,6 +2350,12 @@ void AdminUI::TabInput() {
     for (auto& d : devs) ImGui::BulletText("%s", d.c_str());
     ImGui::Text("Dernière entrée détectée : %s", in.LastRawInput().empty() ? "-" : in.LastRawInput().c_str());
     Help("Appuyez sur un bouton du volant ou de la borne pour voir comment Windows le présente (utile pour vJoy / BackForceFeeder).");
+    if (ImGui::Button("Ouvrir le test des commandes (écran de la borne)")) {
+        Close();
+        app_.OpenInputTest();
+    }
+    Help("Affiche en grand, sur la borne, le volant, les pédales, les boutons et la visée des pistolets en direct. "
+         "Aussi accessible depuis le menu de la borne. Sortie : Retour maintenu 2 s, ou Échap.");
 
     ImGui::SeparatorText("Réglages");
     ImGui::SetNextItemWidth(300); ImGui::SliderInt("Délai avant répétition (ms)", &t.repeatDelayMs, 100, 1000);

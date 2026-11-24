@@ -28,7 +28,7 @@ public:
     void Render();
 
     // Résultat d'une boîte de dialogue native (appelé depuis n'importe quel thread)
-    enum class Field { None, Launch, WorkDir, Logo, Fanart, Video, Import, ThemeBackground, ShareExport, ShareImport, ScanFolder };
+    enum class Field { None, Launch, WorkDir, Logo, Fanart, Video, Import, ThemeBackground, ShareExport, ShareImport, ScanFolder, EmuFolder, RomFolder, ScanProgram, ScanWorkDir };
     void OnDialogResult(Field f, const std::string& path);
 
     // Ouvre l'administration sur un onglet donné (tests automatisés).
@@ -70,6 +70,14 @@ private:
         bool sel = false;
         int64_t cat = 0;  // catégorie choisie (0 = aucune)
     };
+public:
+    void StartEmuScan();     // émulateurs + ROMs + TeknoParrot (public pour les tests automatisés)
+    void TestChooseCustom(int row);  // tests automatisés : « Custom » sur la ligne row de la liste
+private:
+    void WindowEmu();        // choix des deux dossiers
+    void Recognize(std::vector<ScanCandidate>& list, const fs::path& lbDb);  // base LaunchBox (fil du scan)
+    bool emuOpen_ = false;
+    int scanEditRow_ = -1;   // ligne dont on choisit le programme / dossier (« Custom »)
     std::thread scanThread_;
     std::atomic<bool> scanBusy_{false}, scanCancel_{false};
     std::mutex scanM_;

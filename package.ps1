@@ -1,7 +1,7 @@
 ﻿# Fabrication du paquet d'installation : dist\RacecabFrontend-<version>.zip
 # Contenu : programme, bibliothèques (FFmpeg, SDL...), runtime Visual C++ (déploiement local autorisé par Microsoft),
 # scripts d'installation / désinstallation, guide utilisateur, licences.
-param([string]$Version = '0.6.2', [switch]$NoBuild)
+param([string]$Version = '0.7.0', [switch]$NoBuild)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 

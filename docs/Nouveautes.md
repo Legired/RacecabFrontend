@@ -1,5 +1,22 @@
 # Racecab Frontend : nouveautés
 
+## 0.7.0 (2026-11-24)
+
+**Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.
+
+### Ajout de jeux : émulateurs et ROMs
+- **Onglet Jeux > *Émulateurs et ROMs*** : choisis le dossier de tes émulateurs et celui de tes ROMs. Le frontend reconnaît sm2-emu, Model 2 Emulator, Supermodel, Flycast, Demul, MAME et TeknoParrot. Il nomme chaque ROM (« Daytona USA », « Scud Race ») et propose l'émulateur qui convient, qu'on peut changer dans une liste. Les jeux configurés dans TeknoParrot sont proposés aussi.
+- **Lanceur « Custom »** pour chaque jeu trouvé : on choisit soi-même le programme, les arguments et le dossier (ex. un launcher maison qui règle des options avant de lancer le jeu).
+
+### Borne
+- **Éteindre / Redémarrer la borne** depuis le menu de la borne, avec confirmation. **Extinction automatique** possible à heure fixe ou après un temps sans joueur, avec une minute pour annuler (Administration > Système).
+- **Sons de navigation et musique de fond** : bruitages intégrés (remplaçables), musique aléatoire depuis le dossier `music`, qui laisse la place au son des vidéos et se coupe pendant les jeux (Administration > Affichage > Sons).
+- **Test des commandes** dans le menu de la borne : volant, pédales, boutons et pistolets affichés en direct.
+
+### ScreenScraper
+- **Testé avec de vrais identifiants** : logo, fond, capture, vidéo et description en français arrivent bien.
+- **Meilleure reconnaissance des noms** : *Initial D Arcade Stage 7 AAX*, *The Walking Dead* ou *Rambo* sont maintenant trouvés et associés tout seuls. Un jeu au nom différent chez ScreenScraper (ex. *GTI Club 3*) est proposé à confirmer.
+
 ## 0.6.2 (2026-11-24)
 
 **Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.

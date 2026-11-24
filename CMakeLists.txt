@@ -25,6 +25,7 @@ set(SOURCES
     src/library/Database.cpp
     src/library/Library.cpp
     src/library/Scanner.cpp
+    src/library/Emulators.cpp
     src/theme/Theme.cpp
     src/render/TextureCache.cpp
     src/render/Text.cpp
@@ -42,6 +43,7 @@ set(SOURCES
     src/media/Zip.cpp
     src/media/YtVideo.cpp
     src/video/VideoPlayer.cpp
+    src/audio/Sound.cpp
     src/video/Remux.cpp
     src/video/CropDetect.cpp
     src/profiles/Profile.cpp
@@ -86,7 +88,7 @@ target_compile_options(media_tests PRIVATE /utf-8 /W3 /permissive-)
 target_link_libraries(media_tests PRIVATE SDL3::SDL3 nlohmann_json::nlohmann_json unofficial::sqlite3::sqlite3 ZLIB::ZLIB winhttp ${FFMPEG_LIBRARIES})
 
 # Tests de la sauvegarde / restauration et des archives ZIP
-add_executable(system_tests tests/SystemTests.cpp src/core/Backup.cpp src/core/ConfigShare.cpp src/library/Library.cpp src/library/Database.cpp src/library/Scanner.cpp src/profiles/Profile.cpp src/core/Updater.cpp src/net/Http.cpp src/media/Zip.cpp src/core/Util.cpp src/core/Log.cpp src/core/Settings.cpp)
+add_executable(system_tests tests/SystemTests.cpp src/core/Backup.cpp src/core/ConfigShare.cpp src/library/Library.cpp src/library/Database.cpp src/library/Scanner.cpp src/library/Emulators.cpp src/profiles/Profile.cpp src/core/Updater.cpp src/net/Http.cpp src/media/Zip.cpp src/core/Util.cpp src/core/Log.cpp src/core/Settings.cpp)
 target_include_directories(system_tests PRIVATE src)
 target_compile_definitions(system_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_compile_options(system_tests PRIVATE /utf-8 /W3 /permissive-)
