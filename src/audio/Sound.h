@@ -21,6 +21,7 @@ public:
     void Play(Kind k);
     void SetVolume(float v01);  // 0..1 (courbe perceptive appliquée)
     bool Custom(Kind k) const { return custom_[k]; }
+    void Close();               // libère le flux audio (avant SDL_Quit)
 
 private:
     SDL_AudioStream* stream_ = nullptr;

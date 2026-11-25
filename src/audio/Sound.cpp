@@ -65,8 +65,11 @@ const char* kFiles[UiSounds::Count] = {"move.wav", "select.wav", "back.wav", "me
 
 // ---------------------------------------------------------------- Sons de l'interface
 
-UiSounds::~UiSounds() {
+UiSounds::~UiSounds() { Close(); }
+
+void UiSounds::Close() {
     if (stream_) SDL_DestroyAudioStream(stream_);
+    stream_ = nullptr;
 }
 
 void UiSounds::Init(const fs::path& dir) {

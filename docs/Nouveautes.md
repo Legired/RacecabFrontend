@@ -1,5 +1,12 @@
 # Racecab Frontend : nouveautés
 
+## 0.7.1 (2026-11-25)
+
+**Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.
+
+### Correction
+- **Plus de plantage à la fermeture du frontend.** La 0.7.0 plantait en se fermant (sons de l'interface libérés trop tard). Avec le démarrage automatique, le frontend pouvait alors se relancer tout seul après « Quitter » ou « Éteindre la borne ».
+
 ## 0.7.0 (2026-11-24)
 
 **Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.

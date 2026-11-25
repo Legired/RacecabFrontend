@@ -22,7 +22,7 @@
 #include "media/YtVideo.h"
 
 namespace {
-constexpr const char* kVersion = "0.7.0";
+constexpr const char* kVersion = "0.7.1";
 
 bool Inside(const SDL_FRect& r, SDL_FPoint p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; }
 
@@ -542,6 +542,7 @@ void App::MaybeScreenshot(uint64_t now) {
 
 void App::Shutdown() {
     music_.Stop();
+    sfx_.Close();  // avant SDL_Quit : détruire un flux audio après l'arrêt de SDL corrompt le tas
     if (blurA_) SDL_DestroyTexture(blurA_);
     if (blurB_) SDL_DestroyTexture(blurB_);
     blurA_ = blurB_ = nullptr;
