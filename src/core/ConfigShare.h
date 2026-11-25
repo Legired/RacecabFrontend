@@ -48,4 +48,14 @@ struct ImportResult {
 bool Import(Library& lib, const Paths& paths, const fs::path& zip, const ImportOptions& opt, ImportResult& r,
             std::string& err);
 
+// Synchronisation avec la base du PC (Synchroniser.bat sur une borne) : la bibliothèque de baseData (dossier
+// de données d'un frontend, ex. copie locale de H:\Bornes\Racecab\frontend\data) est fusionnée dans lib.
+// Chemins oldRoot (H:\Bornes\Racecab) -> newRoot (C:), arguments compris. Jeux absents ajoutés avec leurs
+// médias ; jeux déjà présents seulement complétés ; profils, réglages et statistiques de la borne intacts.
+bool SyncFrom(Library& lib, const Paths& paths, const fs::path& baseData, const std::string& oldRoot,
+              const std::string& newRoot, ImportResult& r, std::string& err);
+
+// Toutes les occurrences de oldRoot (suivi de \, / ou ") dans un texte remplacées par newRoot.
+std::string RemapIn(const std::string& text, const std::string& oldRoot, const std::string& newRoot);
+
 }  // namespace share

@@ -189,6 +189,25 @@ bool LoadConfig(const fs::path& zip, json& cfg, std::string& err) {
 
 }  // namespace
 
+std::string RemapIn(const std::string& text, const std::string& oldRoot, const std::string& newRoot) {
+    std::string root = oldRoot;
+    while (!root.empty() && (root.back() == '\\' || root.back() == '/')) root.pop_back();
+    if (root.empty()) return text;
+    const std::string low = util::ToLower(root);
+    std::string out;
+    for (size_t i = 0; i < text.size();) {
+        const size_t e = i + root.size();
+        if (e <= text.size() && util::ToLower(text.substr(i, root.size())) == low &&
+            (e == text.size() || text[e] == '\\' || text[e] == '/' || text[e] == '"')) {
+            out += newRoot;
+            i = e;
+        } else {
+            out += text[i++];
+        }
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------- Export
 
 bool Export(const Library& lib, const Paths& paths, const ExportOptions& opt, const fs::path& outZip,
@@ -359,6 +378,7 @@ bool Import(Library& lib, const Paths& paths, const fs::path& zip, const ImportO
         if (g.name.empty()) continue;
         g.launchPath = Remap(g.launchPath, opt.oldRoot, opt.newRoot);
         g.workDir = Remap(g.workDir, opt.oldRoot, opt.newRoot);
+        g.args = RemapIn(g.args, opt.oldRoot, opt.newRoot);
         for (auto& c : jg.value("categories", json::array()))
             if (c.is_string() && !c.get<std::string>().empty()) g.categories.push_back(lib.EnsureCategoryPath(c.get<std::string>()));
 
@@ -456,6 +476,38 @@ bool Import(Library& lib, const Paths& paths, const fs::path& zip, const ImportO
                             r.added, r.updated, r.mediaFiles, r.profiles, r.needVideo.size());
     logx::Info("Configuration importée depuis {} : {}", util::PathU8(zip), r.summary);
     return true;
+}
+
+bool SyncFrom(Library& lib, const Paths& paths, const fs::path& baseData, const std::string& oldRoot,
+              const std::string& newRoot, ImportResult& r, std::string& err) {
+    Paths basePaths;
+    basePaths.dataDir = baseData;
+    std::error_code ec;
+    if (!fs::exists(basePaths.DbFile(), ec)) {
+        err = "bibliothèque de la base introuvable : " + util::PathU8(basePaths.DbFile());
+        return false;
+    }
+    Library base;
+    if (!base.Open(basePaths.DbFile(), basePaths.MediaDir())) {
+        err = "bibliothèque de la base illisible : " + util::PathU8(basePaths.DbFile());
+        return false;
+    }
+    // Passage par le format d'échange : médias (vidéos comprises) et catégories en chemins.
+    const fs::path zip = paths.dataDir / L"sync-base.zip";
+    ExportOptions eo;
+    eo.images = true;
+    eo.videos = true;
+    eo.profiles = false;
+    std::string summary;
+    if (!Export(base, basePaths, eo, zip, summary, err)) return false;
+    ImportOptions io;
+    io.oldRoot = oldRoot;
+    io.newRoot = newRoot;
+    io.profiles = false;  // les profils de la borne (catégories masquées, thème, vidéo) ne sont pas touchés
+    io.media = true;
+    const bool ok = Import(lib, paths, zip, io, r, err);
+    fs::remove(zip, ec);
+    return ok;
 }
 
 }  // namespace share

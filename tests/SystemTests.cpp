@@ -352,6 +352,59 @@ int main() {
                                          c.emuChoice >= 0 ? c.emuChoices[(size_t)c.emuChoice].label.c_str() : "-", c.args.c_str());
     }
 
+    std::printf("- Synchronisation avec la base du PC : jeux ajoutés, chemins et arguments en C:, rien d'écrasé\n");
+    {
+        Paths base, cab;
+        base.dataDir = root / L"sync-base";
+        cab.dataDir = root / L"sync-borne";
+        int64_t baseId = 0;
+        {
+            Library b;
+            CHECK(b.Open(base.DbFile(), base.MediaDir()));
+            Game n;
+            n.name = "Daytona USA";
+            n.launchPath = "H:\\Bornes\\Racecab\\emulateur\\sm2-emu\\sm2-emu.exe";
+            n.args = "--config \"H:\\Bornes\\Racecab\\emulateur\\sm2-emu\" --game daytona \"h:\\bornes\\racecab\\jeux\\model2\\daytona.zip\"";
+            n.workDir = "H:\\Bornes\\Racecab\\emulateur\\sm2-emu";
+            n.categories = {b.EnsureCategoryPath("Course/Arcade")};
+            baseId = b.AddGame(n);
+            Write(b.MediaDirFor(baseId) / L"logo.png", "LOGO");
+            Write(b.MediaDirFor(baseId) / L"video.mp4", "VIDEO");
+            Game e;
+            e.name = "Sega Rally 3";
+            e.launchPath = "H:\\Bornes\\Racecab\\emulateur\\windowsloader\\SR3.bat";
+            e.publisher = "Sega";
+            b.AddGame(e);
+        }
+        Library c;
+        CHECK(c.Open(cab.DbFile(), cab.MediaDir()));
+        Game mine;  // jeu propre à la borne, avec ses réglages
+        mine.name = "Sega Rally 3";
+        mine.launchPath = "C:\\emulateur\\windowsloader\\SR3-borne.bat";
+        mine.args = "--siege 2";
+        const int64_t mineId = c.AddGame(mine);
+        share::ImportResult r;
+        std::string err;
+        CHECK(share::SyncFrom(c, cab, base.dataDir, "H:\\Bornes\\Racecab", "C:", r, err));
+        CHECK(r.added == 1);
+        const Game* d = nullptr;
+        for (const Game& g : c.Games())
+            if (g.name == "Daytona USA") d = &g;
+        CHECK(d != nullptr);
+        if (d) {
+            CHECK(d->launchPath == "C:\\emulateur\\sm2-emu\\sm2-emu.exe" && d->workDir == "C:\\emulateur\\sm2-emu");
+            CHECK(d->args == "--config \"C:\\emulateur\\sm2-emu\" --game daytona \"C:\\jeux\\model2\\daytona.zip\"");
+            CHECK(fs::exists(c.MediaDirFor(d->id) / L"logo.png") && fs::exists(c.MediaDirFor(d->id) / L"video.mp4"));
+            CHECK(!d->categories.empty());
+        }
+        const Game* m = c.FindGame(mineId);
+        CHECK(m && m->launchPath == "C:\\emulateur\\windowsloader\\SR3-borne.bat" && m->args == "--siege 2");  // pas écrasé
+        CHECK(m && m->publisher == "Sega");  // seulement complété
+        share::ImportResult r2;
+        CHECK(share::SyncFrom(c, cab, base.dataDir, "H:\\Bornes\\Racecab", "C:", r2, err) && r2.added == 0);  // rien en double
+        CHECK(share::RemapIn("x \"H:\\Bornes\\Racecab2\\a\"", "H:\\Bornes\\Racecab", "C:") == "x \"H:\\Bornes\\Racecab2\\a\"");
+    }
+
     logx::Shutdown();
     fs::remove_all(root, ec);
     std::printf("\n%d vérifications réussies, %d échec(s)\n", g_pass, g_fail);

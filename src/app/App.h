@@ -228,6 +228,7 @@ private:
     std::vector<char> letters_;
     int letterIndex_ = 0;
     bool importOnly_ = false;
+    bool syncFailed_ = false;  // --sync-from : échec (code de sortie 2)
     int64_t node_ = Library::kAll;
     std::vector<WheelItem> items_;
     std::unordered_map<int64_t, WheelItem> lastSelection_;  // sélection mémorisée par catégorie

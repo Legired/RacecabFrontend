@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <format>
+#include <fstream>
 
 #include "admin/AdminUI.h"
 #include "core/Backup.h"
@@ -22,7 +23,7 @@
 #include "media/YtVideo.h"
 
 namespace {
-constexpr const char* kVersion = "0.7.1";
+constexpr const char* kVersion = "0.7.2";
 
 bool Inside(const SDL_FRect& r, SDL_FPoint p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; }
 
@@ -129,7 +130,7 @@ int App::Run(int argc, char** argv) {
     }
     if (importOnly_) {
         Shutdown();
-        return 0;
+        return syncFailed_ ? 2 : 0;
     }
     uint64_t prev = SDL_GetTicksNS();
     uint64_t statWindowStart = SDL_GetTicks();
@@ -235,6 +236,27 @@ bool App::Init(int argc, char** argv) {
             std::string err;
             if (!lib_.ImportList(util::U8Path(argv[i + 1]), added, dup, err)) logx::Error("Import : {}", err);
         }
+    }
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::string(argv[i]) != "--sync-from") continue;
+        // Synchronisation avec la base du PC (lancée par Synchroniser.bat, sans fenêtre).
+        std::string root, to = "C:", report;
+        for (int k = 1; k + 1 < argc; ++k) {
+            if (std::string(argv[k]) == "--sync-root") root = argv[k + 1];
+            if (std::string(argv[k]) == "--sync-to") to = argv[k + 1];
+            if (std::string(argv[k]) == "--sync-report") report = argv[k + 1];
+        }
+        share::ImportResult r;
+        std::string err;
+        const bool ok = share::SyncFrom(lib_, paths_, util::U8Path(argv[i + 1]), root, to, r, err);
+        const std::string msg = ok ? "Bibliothèque : " + r.summary : "Bibliothèque : ÉCHEC - " + err;
+        logx::Info("Synchronisation avec la base : {}", msg);
+        if (!report.empty()) {
+            std::ofstream f(util::U8Path(report), std::ios::binary);
+            f << msg << "\n";
+        }
+        syncFailed_ = !ok;
+        importOnly_ = true;
     }
     if (importOnly_) return true;  // import en ligne de commande, sans ouvrir de fenêtre
     if (settings_.autoBackup) backup::AutoIfDue(paths_, settings_.backupKeep);

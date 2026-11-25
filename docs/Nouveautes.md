@@ -1,5 +1,12 @@
 # Racecab Frontend : nouveautés
 
+## 0.7.2 (2026-11-25)
+
+**Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.
+
+### Synchronisation avec une base sur le PC
+- Option `--sync-from <données de la base> --sync-root <racine côté PC> [--sync-to C:] [--sync-report <fichier>]` : fusionne la bibliothèque d'une base dans celle de la borne, sans fenêtre. Les jeux absents sont ajoutés (images, vidéo, catégories), les chemins `<racine>\…` deviennent `C:\…`, arguments compris. Les jeux, profils, réglages et statistiques de la borne ne sont pas modifiés. Utilisée par `Synchroniser.bat` (voir docs/Synchronisation.md).
+
 ## 0.7.1 (2026-11-25)
 
 **Mise à jour** : Administration > Système > *Mises à jour* > *Télécharger*, puis *Installer et redémarrer*. Tes jeux et réglages sont conservés.
